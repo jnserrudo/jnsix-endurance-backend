@@ -1,0 +1,15 @@
+const express = require('express');
+const router = express.Router();
+const aiController = require('../controllers/ai.controller');
+const { authenticateToken } = require('../middleware/auth.middleware');
+
+router.use(authenticateToken);
+
+router.post('/analyze-activity/:id', aiController.analyzeActivity);
+router.post('/training-plan', aiController.generateTrainingPlan);
+router.post('/race-strategy', aiController.getRaceStrategy);
+router.post('/predict-time', aiController.predictTime);
+router.get('/history', aiController.getAnalysisHistory);
+router.get('/usage', aiController.getUsageStats);
+
+module.exports = router;

@@ -1,0 +1,159 @@
+// JNSIX Endurance Analytics - Prisma Schema
+// Plataforma analítica para triatlón y trail running
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id                String              @id @default(uuid())
+  email             String              @unique
+  password          String?
+  role              Role                @default(ATHLETE)
+  stravaId          String?             @unique @map("strava_id")
+  stravaAccessToken String?             @map("strava_access_token")
+  stravaRefreshToken String?            @map("strava_refresh_token")
+  stravaTokenExpiry DateTime?           @map("strava_token_expiry")
+  lastSyncDate      DateTime?           @map("last_sync_date")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  activities        Activity[]
+  comparisons       ActivityComparison[]
+  aiAnalyses        AIAnalysis[]
+
+  @@map("users")
+}
+
+model Activity {
+  id                String               @id @default(uuid())
+  userId            String?              @map("user_id")
+  stravaId          String?              @unique @map("strava_id")
+  name              String
+  type              ActivityType
+  distanceKm        Float                @map("distance_km")
+  elevationM        Float                @map("elevation_m")
+  movingTime        Int                  @map("moving_time")
+  startDate         DateTime             @map("start_date")
+  averageHr         Int?                 @map("average_hr")
+  maxHr             Int?                 @map("max_hr")
+  calories          Int?
+  isExternal        Boolean              @default(false) @map("is_external")
+  shareToken        String?              @unique @map("share_token")
+  fileUrl           String?              @map("file_url")
+  fileType          FileType?            @map("file_type")
+  rawData           Json?                @map("raw_data")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+  user              User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  laps              ActivityLap[]
+  comparisons       ComparisonActivity[]
+  aiAnalyses        AIAnalysis[]
+  
+  @@index([userId])
+  @@index([startDate])
+  @@index([shareToken])
+  @@map("activities")
+}
+
+model ActivityLap {
+  id             String   @id @default(uuid())
+  activityId     String   @map("activity_id")
+  splitNum       Int      @map("split_num")
+  distance       Float
+  elevationGain  Float    @map("elevation_gain")
+  averagePace    Float    @map("average_pace")
+  averageHr      Int?     @map("average_hr")
+  maxHr          Int?     @map("max_hr")
+  createdAt      DateTime @default(now()) @map("created_at")
+  activity       Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  
+  @@index([activityId])
+  @@map("activity_laps")
+}
+
+model ActivityComparison {
+  id          String               @id @default(uuid())
+  userId      String               @map("user_id")
+  name        String
+  description String?
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activities  ComparisonActivity[]
+  
+  @@index([userId])
+  @@map("activity_comparisons")
+}
+
+model ComparisonActivity {
+  id           String             @id @default(uuid())
+  comparisonId String             @map("comparison_id")
+  activityId   String             @map("activity_id")
+  color        String?
+  label        String?
+  createdAt    DateTime           @default(now()) @map("created_at")
+  comparison   ActivityComparison @relation(fields: [comparisonId], references: [id], onDelete: Cascade)
+  activity     Activity           @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  
+  @@unique([comparisonId, activityId])
+  @@index([comparisonId])
+  @@index([activityId])
+  @@map("comparison_activities")
+}
+
+model AIAnalysis {
+  id          String        @id @default(uuid())
+  userId      String        @map("user_id")
+  activityId  String?       @map("activity_id")
+  type        AIAnalysisType
+  prompt      String        @db.Text
+  response    String        @db.Text
+  model       String
+  tokensUsed  Int           @map("tokens_used")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity    Activity?     @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([activityId])
+  @@index([type])
+  @@map("ai_analyses")
+}
+
+enum Role {
+  ADMIN
+  ATHLETE
+}
+
+enum ActivityType {
+  RUN
+  RIDE
+  SWIM
+  TRAIL_RUN
+  VIRTUAL_RUN
+  VIRTUAL_RIDE
+  HIKE
+  WALK
+  OTHER
+}
+
+enum FileType {
+  FIT
+  GPX
+  TCX
+}
+
+enum AIAnalysisType {
+  TRAINING_RECOMMENDATION
+  PERFORMANCE_ANALYSIS
+  RACE_STRATEGY
+  FATIGUE_ANALYSIS
+  TIME_PREDICTION
+  GENERAL_INSIGHT
+}
