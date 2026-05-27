@@ -5,12 +5,14 @@ const Groq = require('groq-sdk');
 class AIService {
   constructor() {
     this.provider = process.env.AI_PROVIDER || 'openai';
+    console.log('AI Provider configured:', this.provider);
     
     if (this.provider === 'openai' && process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY
       });
       this.model = process.env.OPENAI_MODEL || 'gpt-4-turbo-preview';
+      console.log('OpenAI initialized with model:', this.model);
     }
     
     if (this.provider === 'anthropic' && process.env.ANTHROPIC_API_KEY) {
@@ -18,13 +20,19 @@ class AIService {
         apiKey: process.env.ANTHROPIC_API_KEY
       });
       this.model = process.env.ANTHROPIC_MODEL || 'claude-3-sonnet-20240229';
+      console.log('Anthropic initialized with model:', this.model);
     }
     
     if (this.provider === 'groq' && process.env.GROQ_API_KEY) {
       this.groq = new Groq({
         apiKey: process.env.GROQ_API_KEY
       });
-      this.model = process.env.GROQ_MODEL || 'llama3-70b-8192';
+      this.model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+      console.log('Groq initialized with model:', this.model);
+    }
+    
+    if (!this.openai && !this.anthropic && !this.groq) {
+      console.error('No AI provider initialized. Check environment variables.');
     }
   }
 

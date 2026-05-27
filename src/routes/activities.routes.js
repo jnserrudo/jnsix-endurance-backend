@@ -13,6 +13,7 @@ router.get('/shared/:token', activitiesController.getSharedActivity);
 router.use(authenticateToken);
 
 router.get('/', activitiesController.getActivities);
+router.get('/dashboard-metrics', activitiesController.getDashboardMetrics);
 router.post('/sync-strava', activitiesController.syncStravaActivities);
 router.post('/sync-job', activitiesController.createSyncJob);
 router.get('/sync-job/:jobId', activitiesController.getSyncJobStatus);

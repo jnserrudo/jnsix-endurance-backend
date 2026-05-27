@@ -712,6 +712,120 @@ const getSyncJobStatus = async (req, res) => {
   }
 };
 
+const getDashboardMetrics = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // Esta semana
+    const thisWeekActivities = await prisma.activity.findMany({
+      where: {
+        userId,
+        startDate: { gte: weekAgo }
+      },
+      select: {
+        distanceKm: true,
+        movingTime: true
+      }
+    });
+
+    const thisWeekDistance = thisWeekActivities.reduce((sum, a) => sum + (a.distanceKm || 0), 0);
+    const thisWeekTime = thisWeekActivities.reduce((sum, a) => sum + (a.movingTime || 0), 0);
+
+    // Este mes
+    const thisMonthActivities = await prisma.activity.findMany({
+      where: {
+        userId,
+        startDate: { gte: monthAgo }
+      },
+      select: {
+        distanceKm: true,
+        movingTime: true
+      }
+    });
+
+    const thisMonthDistance = thisMonthActivities.reduce((sum, a) => sum + (a.distanceKm || 0), 0);
+    const thisMonthTime = thisMonthActivities.reduce((sum, a) => sum + (a.movingTime || 0), 0);
+
+    // Récord distancia
+    const longestActivity = await prisma.activity.findFirst({
+      where: { userId },
+      orderBy: { distanceKm: 'desc' },
+      select: {
+        distanceKm: true,
+        name: true
+      }
+    });
+
+    // Racha - días consecutivos con actividad
+    const allActivities = await prisma.activity.findMany({
+      where: { userId },
+      select: {
+        startDate: true
+      },
+      orderBy: { startDate: 'desc' }
+    });
+
+    const streak = calculateStreak(allActivities);
+
+    res.json({
+      thisWeek: {
+        distance: thisWeekDistance,
+        time: thisWeekTime,
+        count: thisWeekActivities.length
+      },
+      thisMonth: {
+        distance: thisMonthDistance,
+        time: thisMonthTime,
+        count: thisMonthActivities.length
+      },
+      record: {
+        distance: longestActivity?.distanceKm || 0,
+        name: longestActivity?.name || 'N/A'
+      },
+      streak
+    });
+  } catch (error) {
+    console.error('🔴 [GET DASHBOARD METRICS] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+function calculateStreak(activities) {
+  if (activities.length === 0) return 0;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const activityDates = activities
+    .map(a => {
+      const date = new Date(a.startDate);
+      date.setHours(0, 0, 0, 0);
+      return date.getTime();
+    })
+    .sort((a, b) => b - a);
+
+  let streak = 0;
+  let currentDate = today.getTime();
+  const oneDay = 24 * 60 * 60 * 1000;
+
+  for (const date of activityDates) {
+    if (date === currentDate) {
+      streak++;
+      currentDate -= oneDay;
+    } else if (date === currentDate - oneDay) {
+      currentDate -= oneDay;
+      streak++;
+    } else {
+      break;
+    }
+  }
+
+  return streak;
+}
+
 module.exports = {
   getActivities,
   getActivityById,
@@ -727,5 +841,6 @@ module.exports = {
   createSyncJob,
   getSyncJobStatus,
   updateActivity,
-  deleteActivity
+  deleteActivity,
+  getDashboardMetrics
 };
