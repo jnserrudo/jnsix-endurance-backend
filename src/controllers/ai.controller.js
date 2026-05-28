@@ -560,6 +560,67 @@ Proporciona:
   }
 };
 
+const chatWithCoach = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { messages } = req.body;
+
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: 'Messages array is required' });
+    }
+
+    // Obtener las últimas 15 actividades del atleta para el contexto de entrenamiento
+    const recentActivities = await prisma.activity.findMany({
+      where: { userId },
+      orderBy: { startDate: 'desc' },
+      take: 15,
+      select: {
+        name: true,
+        type: true,
+        distanceKm: true,
+        elevationM: true,
+        movingTime: true,
+        startDate: true,
+        averageHr: true,
+        maxHr: true
+      }
+    });
+
+    const activitiesSummary = recentActivities.map(a => 
+      `- Fecha: ${a.startDate.toISOString().split('T')[0]} | Nombre: ${a.name} | Tipo: ${a.type} | Distancia: ${a.distanceKm.toFixed(2)} km | Desnivel: ${Math.round(a.elevationM)}m | Tiempo: ${Math.floor(a.movingTime/60)}m ${a.movingTime%60}s | FC Promedio: ${a.averageHr || 'N/A'} bpm`
+    ).join('\n');
+
+    const systemPrompt = `Eres JNSIX AI Coach, un entrenador personal y consultor deportivo experto en triatlón, ciclismo, trail running y natación.
+Tu objetivo es guiar al atleta con respuestas basadas en la ciencia del deporte, siendo alentador, profesional y muy técnico.
+
+Aquí tienes el historial reciente de las últimas 15 actividades del atleta en la plataforma:
+${activitiesSummary || 'El atleta no tiene actividades registradas todavía.'}
+
+Usa este historial deportivo como contexto principal para responder preguntas sobre su volumen de entrenamiento, fatiga, consejos de recuperación, ritmos, progresiones y planeamiento de sesiones.
+Si te preguntan algo fuera de su contexto o de entrenamiento, redirígelos amablemente hacia su preparación física.
+Proporciona respuestas cortas, directas y formateadas en Markdown claras y legibles en dispositivos móviles.`;
+
+    const result = await aiService.chatWithCoach(systemPrompt, messages);
+
+    // Registrar en el historial de uso de IA
+    await prisma.aIAnalysis.create({
+      data: {
+        userId,
+        type: 'GENERAL_INSIGHT',
+        prompt: messages[messages.length - 1]?.content || 'Chat con el Coach',
+        response: result.response,
+        model: result.model,
+        tokensUsed: result.tokensUsed
+      }
+    });
+
+    res.json({ response: result.response });
+  } catch (error) {
+    console.error('Error in chatWithCoach:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   analyzeActivity,
   generateTrainingPlan,
@@ -569,5 +630,6 @@ module.exports = {
   getUsageStats,
   analyzeMultipleActivities,
   compareActivities,
-  analyzeTrends
+  analyzeTrends,
+  chatWithCoach
 };

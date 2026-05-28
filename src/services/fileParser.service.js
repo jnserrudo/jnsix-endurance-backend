@@ -49,7 +49,8 @@ class FileParserService {
       rawData: {
         session,
         recordsCount: records.length,
-        lapsCount: laps.length
+        lapsCount: laps.length,
+        coordinates: this.downsampleCoordinates(records)
       },
       laps: this.extractLaps(laps)
     };
@@ -133,7 +134,8 @@ class FileParserService {
       rawData: {
         pointsCount: points.length,
         minElevation,
-        maxElevation
+        maxElevation,
+        coordinates: this.downsampleCoordinates(points)
       },
       laps: this.generateLapsFromDistance(points, totalDistance)
     };
@@ -259,6 +261,39 @@ class FileParserService {
     };
 
     return mapping[sport?.toLowerCase()] || 'OTHER';
+  }
+
+  downsampleCoordinates(points) {
+    const maxMapPoints = 300;
+    if (!points || points.length === 0) return [];
+    
+    const step = Math.max(1, Math.floor(points.length / maxMapPoints));
+    const coordinates = [];
+    
+    for (let i = 0; i < points.length; i += step) {
+      const p = points[i];
+      if (p) {
+        const lat = p.lat ?? p.latitude ?? p.position_lat;
+        const lon = p.lon ?? p.longitude ?? p.position_long ?? p.position_lng;
+        if (typeof lat === 'number' && typeof lon === 'number') {
+          coordinates.push([lat, lon]);
+        }
+      }
+    }
+    
+    // Always include the last point
+    if (points.length > 1 && (points.length - 1) % step !== 0) {
+      const p = points[points.length - 1];
+      if (p) {
+        const lat = p.lat ?? p.latitude ?? p.position_lat;
+        const lon = p.lon ?? p.longitude ?? p.position_long ?? p.position_lng;
+        if (typeof lat === 'number' && typeof lon === 'number') {
+          coordinates.push([lat, lon]);
+        }
+      }
+    }
+    
+    return coordinates;
   }
 }
 

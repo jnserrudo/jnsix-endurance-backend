@@ -207,6 +207,57 @@ Proporciona insights generales sobre esta actividad:
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   }
 
+  async chatWithCoach(systemPrompt, chatMessages) {
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...chatMessages
+    ];
+
+    try {
+      if (this.provider === 'openai') {
+        const response = await this.openai.chat.completions.create({
+          model: this.model,
+          messages,
+          temperature: 0.7,
+          max_tokens: 1500
+        });
+        return {
+          response: response.choices[0].message.content,
+          tokensUsed: response.usage.total_tokens,
+          model: this.model
+        };
+      } else if (this.provider === 'anthropic') {
+        const response = await this.anthropic.messages.create({
+          model: this.model,
+          max_tokens: 1500,
+          system: systemPrompt,
+          messages: chatMessages
+        });
+        return {
+          response: response.content[0].text,
+          tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
+          model: this.model
+        };
+      } else if (this.provider === 'groq') {
+        const response = await this.groq.chat.completions.create({
+          model: this.model,
+          messages,
+          temperature: 0.7,
+          max_tokens: 1500
+        });
+        return {
+          response: response.choices[0].message.content,
+          tokensUsed: response.usage.total_tokens,
+          model: this.model
+        };
+      } else {
+        throw new Error('No AI provider configured');
+      }
+    } catch (error) {
+      throw new Error(`AI chat failed: ${error.message}`);
+    }
+  }
+
   async generateTrainingPlan(userProfile, goal, weeks = 12) {
     const prompt = `
 Perfil del atleta:

@@ -12,6 +12,7 @@ router.post('/analyze-trends', aiController.analyzeTrends);
 router.post('/training-plan', aiController.generateTrainingPlan);
 router.post('/race-strategy', aiController.getRaceStrategy);
 router.post('/predict-time', aiController.predictTime);
+router.post('/coach', aiController.chatWithCoach);
 router.get('/history', aiController.getAnalysisHistory);
 router.get('/usage', aiController.getUsageStats);
 
