@@ -60,14 +60,21 @@ const getActivityById = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const activity = await prisma.activity.findFirst({
+    let activity = await prisma.activity.findFirst({
       where: { id, userId },
       include: {
         laps: {
           orderBy: { splitNum: 'asc' }
         },
         user: {
-          select: { id: true, email: true, role: true }
+          select: { 
+            id: true, 
+            email: true, 
+            role: true, 
+            stravaAccessToken: true, 
+            stravaRefreshToken: true, 
+            stravaTokenExpiry: true 
+          }
         }
       }
     });
@@ -76,11 +83,113 @@ const getActivityById = async (req, res) => {
       return res.status(404).json({ error: 'Activity not found' });
     }
 
+    // Si es una actividad de Strava y no tiene laps en la base de datos, intentar sincronizar detalles on-demand
+    if (activity.stravaId && activity.laps.length === 0 && activity.user?.stravaAccessToken) {
+      try {
+        console.log(`🔵 [GET DETAIL] Sincronizando detalles de Strava para actividad ${id}...`);
+        let accessToken = activity.user.stravaAccessToken;
+        const user = activity.user;
+        
+        // Verificar si el token está expirado o expira pronto (menos de 5 minutos)
+        const isExpired = user.stravaTokenExpiry && 
+          (new Date(user.stravaTokenExpiry).getTime() - Date.now() < 5 * 60 * 1000);
+        
+        if (isExpired && user.stravaRefreshToken) {
+          console.log('🔵 [GET DETAIL] Token de Strava expirado. Refrescando...');
+          const refreshData = await stravaService.refreshToken(user.stravaRefreshToken);
+          
+          const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: {
+              stravaAccessToken: refreshData.access_token,
+              stravaRefreshToken: refreshData.refresh_token || user.stravaRefreshToken,
+              stravaTokenExpiry: new Date(Date.now() + refreshData.expires_in * 1000)
+            }
+          });
+          accessToken = updatedUser.stravaAccessToken;
+        }
+
+        // Obtener la actividad detallada (con laps y splits)
+        const detailedActivity = await stravaService.getActivity(activity.stravaId, accessToken);
+        
+        if (detailedActivity) {
+          const lapsToCreate = [];
+          
+          // 1. Extraer de laps detallados (vueltas/series)
+          if (detailedActivity.laps && Array.isArray(detailedActivity.laps)) {
+            detailedActivity.laps.forEach((lap, index) => {
+              const distKm = (lap.distance || 0) / 1000;
+              const pace = (lap.moving_time && distKm > 0) ? ((lap.moving_time / 60) / distKm) : 0;
+              lapsToCreate.push({
+                activityId: activity.id,
+                splitNum: index + 1,
+                distance: distKm,
+                elevationGain: lap.total_elevation_gain || 0,
+                averagePace: pace,
+                averageHr: lap.average_heartrate ? Math.round(lap.average_heartrate) : null,
+                maxHr: lap.max_heartrate ? Math.round(lap.max_heartrate) : null
+              });
+            });
+          }
+
+          // 2. Si no hay laps detallados pero hay splits de kilómetros, usarlos como fallback
+          if (lapsToCreate.length === 0 && detailedActivity.splits_metric && Array.isArray(detailedActivity.splits_metric)) {
+            detailedActivity.splits_metric.forEach((split, index) => {
+              const distKm = (split.distance || 0) / 1000;
+              const pace = (split.moving_time && distKm > 0) ? ((split.moving_time / 60) / distKm) : 0;
+              lapsToCreate.push({
+                activityId: activity.id,
+                splitNum: index + 1,
+                distance: distKm,
+                elevationGain: split.elevation_difference || 0,
+                averagePace: pace,
+                averageHr: split.average_heartrate ? Math.round(split.average_heartrate) : null,
+                maxHr: split.average_heartrate ? Math.round(split.average_heartrate) : null
+              });
+            });
+          }
+
+          // Guardar laps en DB
+          if (lapsToCreate.length > 0) {
+            await prisma.activityLap.deleteMany({
+              where: { activityId: activity.id }
+            });
+            await prisma.activityLap.createMany({
+              data: lapsToCreate
+            });
+          }
+
+          // Actualizar actividad con rawData completo y métricas actualizadas
+          activity = await prisma.activity.update({
+            where: { id: activity.id },
+            data: {
+              rawData: detailedActivity,
+              elevationM: detailedActivity.total_elevation_gain || activity.elevationM,
+              movingTime: detailedActivity.moving_time || activity.movingTime,
+              distanceKm: detailedActivity.distance ? (detailedActivity.distance / 1000) : activity.distanceKm
+            },
+            include: {
+              laps: {
+                orderBy: { splitNum: 'asc' }
+              },
+              user: {
+                select: { id: true, email: true, role: true }
+              }
+            }
+          });
+          console.log(`✅ [GET DETAIL] Actividad ${id} sincronizada con detalles de Strava y ${lapsToCreate.length} laps.`);
+        }
+      } catch (syncError) {
+        console.error(`🔴 [GET DETAIL] Error al sincronizar detalles de Strava:`, syncError.message);
+      }
+    }
+
     res.json(activity);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
+
 
 const createActivity = async (req, res) => {
   try {
@@ -193,6 +302,35 @@ const importFromLink = async (req, res) => {
 
     const stravaActivity = await stravaService.getActivity(activityId, user.stravaAccessToken);
 
+    const lapsToCreate = [];
+    if (stravaActivity.laps && Array.isArray(stravaActivity.laps)) {
+      stravaActivity.laps.forEach((lap, index) => {
+        const distKm = (lap.distance || 0) / 1000;
+        const pace = (lap.moving_time && distKm > 0) ? ((lap.moving_time / 60) / distKm) : 0;
+        lapsToCreate.push({
+          splitNum: index + 1,
+          distance: distKm,
+          elevationGain: lap.total_elevation_gain || 0,
+          averagePace: pace,
+          averageHr: lap.average_heartrate ? Math.round(lap.average_heartrate) : null,
+          maxHr: lap.max_heartrate ? Math.round(lap.max_heartrate) : null
+        });
+      });
+    } else if (stravaActivity.splits_metric && Array.isArray(stravaActivity.splits_metric)) {
+      stravaActivity.splits_metric.forEach((split, index) => {
+        const distKm = (split.distance || 0) / 1000;
+        const pace = (split.moving_time && distKm > 0) ? ((split.moving_time / 60) / distKm) : 0;
+        lapsToCreate.push({
+          splitNum: index + 1,
+          distance: distKm,
+          elevationGain: split.elevation_difference || 0,
+          averagePace: pace,
+          averageHr: split.average_heartrate ? Math.round(split.average_heartrate) : null,
+          maxHr: split.average_heartrate ? Math.round(split.average_heartrate) : null
+        });
+      });
+    }
+
     const activity = await prisma.activity.create({
       data: {
         userId,
@@ -207,7 +345,13 @@ const importFromLink = async (req, res) => {
         maxHr: stravaActivity.max_heartrate || null,
         calories: stravaActivity.calories || null,
         isExternal: true,
-        rawData: stravaActivity
+        rawData: stravaActivity,
+        laps: {
+          create: lapsToCreate
+        }
+      },
+      include: {
+        laps: true
       }
     });
 
@@ -216,6 +360,7 @@ const importFromLink = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
 
 const getSharedActivity = async (req, res) => {
   try {
@@ -627,13 +772,42 @@ const handleStravaWebhook = async (req, res) => {
     
     console.log('✅ [STRAVA WEBHOOK] Usuario encontrado:', user.id);
     
-    // Sincronizar la nueva actividad
+    // Sincronizar la nueva actividad (con argumentos en orden correcto: activityId, token)
     const newActivity = await stravaService.getActivity(
-      user.stravaAccessToken,
-      object_id
+      object_id,
+      user.stravaAccessToken
     );
     
     if (newActivity) {
+      const lapsToCreate = [];
+      if (newActivity.laps && Array.isArray(newActivity.laps)) {
+        newActivity.laps.forEach((lap, index) => {
+          const distKm = (lap.distance || 0) / 1000;
+          const pace = (lap.moving_time && distKm > 0) ? ((lap.moving_time / 60) / distKm) : 0;
+          lapsToCreate.push({
+            splitNum: index + 1,
+            distance: distKm,
+            elevationGain: lap.total_elevation_gain || 0,
+            averagePace: pace,
+            averageHr: lap.average_heartrate ? Math.round(lap.average_heartrate) : null,
+            maxHr: lap.max_heartrate ? Math.round(lap.max_heartrate) : null
+          });
+        });
+      } else if (newActivity.splits_metric && Array.isArray(newActivity.splits_metric)) {
+        newActivity.splits_metric.forEach((split, index) => {
+          const distKm = (split.distance || 0) / 1000;
+          const pace = (split.moving_time && distKm > 0) ? ((split.moving_time / 60) / distKm) : 0;
+          lapsToCreate.push({
+            splitNum: index + 1,
+            distance: distKm,
+            elevationGain: split.elevation_difference || 0,
+            averagePace: pace,
+            averageHr: split.average_heartrate ? Math.round(split.average_heartrate) : null,
+            maxHr: split.average_heartrate ? Math.round(split.average_heartrate) : null
+          });
+        });
+      }
+
       // Crear la actividad en la base de datos
       const activityData = {
         id: uuidv4(),
@@ -641,14 +815,17 @@ const handleStravaWebhook = async (req, res) => {
         stravaId: object_id.toString(),
         name: newActivity.name || 'Strava Activity',
         type: newActivity.type?.toUpperCase() || 'RUN',
-        startDate: newActivity.start_date,
+        startDate: new Date(newActivity.start_date),
         distanceKm: newActivity.distance ? newActivity.distance / 1000 : 0,
         movingTime: newActivity.moving_time || 0,
         elevationM: newActivity.total_elevation_gain || 0,
-        averageHr: newActivity.average_heartrate || 0,
-        maxHr: newActivity.max_heartrate || 0,
+        averageHr: newActivity.average_heartrate ? Math.round(newActivity.average_heartrate) : 0,
+        maxHr: newActivity.max_heartrate ? Math.round(newActivity.max_heartrate) : 0,
         calories: newActivity.calories || 0,
-        rawData: newActivity
+        rawData: newActivity,
+        laps: {
+          create: lapsToCreate
+        }
       };
       
       await prisma.activity.create({ data: activityData });
@@ -668,6 +845,7 @@ const handleStravaWebhook = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
 
 // Crear job de sincronización en background
 const createSyncJob = async (req, res) => {
