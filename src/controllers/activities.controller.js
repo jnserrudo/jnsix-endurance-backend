@@ -8,6 +8,27 @@ const syncQueueService = require('../services/syncQueue.service');
 
 const prisma = new PrismaClient();
 
+const ensureValidStravaToken = async (user) => {
+  const isExpired = user.stravaTokenExpiry && 
+    (new Date(user.stravaTokenExpiry).getTime() - Date.now() < 5 * 60 * 1000);
+  
+  if (isExpired && user.stravaRefreshToken) {
+    console.log(`🔵 Refrescando token de Strava para usuario ${user.id}...`);
+    const refreshData = await stravaService.refreshToken(user.stravaRefreshToken);
+    
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        stravaAccessToken: refreshData.access_token,
+        stravaRefreshToken: refreshData.refresh_token || user.stravaRefreshToken,
+        stravaTokenExpiry: new Date(Date.now() + refreshData.expires_in * 1000)
+      }
+    });
+    return updatedUser.stravaAccessToken;
+  }
+  return user.stravaAccessToken;
+};
+
 const getActivities = async (req, res) => {
   try {
     console.log('🟢 [GET ACTIVITIES] Usuario:', req.user.id);
@@ -676,16 +697,18 @@ const checkNewActivities = async (req, res) => {
       where: { id: userId }
     });
 
-    if (!user.stravaAccessToken) {
+    if (!user || !user.stravaAccessToken) {
       console.log('🔴 [CHECK NEW] Usuario no conectado a Strava');
       return res.json({ hasNew: false, count: 0, message: 'No conectado a Strava' });
     }
+
+    const validToken = await ensureValidStravaToken(user);
 
     if (!user.lastSyncDate) {
       console.log('🔵 [CHECK NEW] Primera sincronización - todas las actividades son nuevas');
       // Obtener solo la primera página para estimar
       const pageActivities = await stravaService.getActivities(
-        user.stravaAccessToken,
+        validToken,
         1,
         1
       );
@@ -703,7 +726,7 @@ const checkNewActivities = async (req, res) => {
     console.log(`🔵 [CHECK NEW] Verificando actividades después de: ${afterDate.toISOString()}`);
     
     const newActivities = await stravaService.getActivities(
-      user.stravaAccessToken,
+      validToken,
       1,
       30, // Solo verificar primeras 30
       afterDate
@@ -862,9 +885,10 @@ const createSyncJob = async (req, res) => {
       return res.status(400).json({ error: 'Usuario no conectado a Strava' });
     }
     
+    const validToken = await ensureValidStravaToken(user);
     const afterDate = after ? new Date(after) : user.lastSyncDate;
     
-    const jobId = syncQueueService.createJob(userId, user.stravaAccessToken, afterDate);
+    const jobId = syncQueueService.createJob(userId, validToken, afterDate);
     
     res.json({ jobId, status: 'created' });
   } catch (error) {
