@@ -7,6 +7,7 @@ const activitiesRoutes = require('./routes/activities.routes');
 const comparisonsRoutes = require('./routes/comparisons.routes');
 const aiRoutes = require('./routes/ai.routes');
 const webhookRoutes = require('./routes/webhook.routes');
+const authController = require('./controllers/auth.controller');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -41,6 +42,9 @@ app.use('/api/activities', activitiesRoutes);
 app.use('/api/comparisons', comparisonsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/webhook', webhookRoutes);
+
+// Ruta especial para callback de Strava (sin /api para compatibilidad con Strava)
+app.get('/strava/callback', authController.stravaCallback);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
