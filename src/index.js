@@ -7,6 +7,7 @@ const activitiesRoutes = require('./routes/activities.routes');
 const comparisonsRoutes = require('./routes/comparisons.routes');
 const aiRoutes = require('./routes/ai.routes');
 const webhookRoutes = require('./routes/webhook.routes');
+const competitionsRoutes = require('./routes/competitions.routes');
 const authController = require('./controllers/auth.controller');
 
 const app = express();
@@ -42,6 +43,8 @@ app.use('/api/activities', activitiesRoutes);
 app.use('/api/comparisons', comparisonsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/webhook', webhookRoutes);
+app.use('/api/competitions', competitionsRoutes);
+
 
 // Ruta especial para callback de Strava (sin /api para compatibilidad con Strava)
 app.get('/strava/callback', authController.stravaCallback);

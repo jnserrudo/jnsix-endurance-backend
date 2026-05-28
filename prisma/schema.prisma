@@ -26,6 +26,8 @@ model User {
   activities        Activity[]
   comparisons       ActivityComparison[]
   aiAnalyses        AIAnalysis[]
+  competitionGoals  CompetitionGoal[]
+
 
   @@map("users")
 }
@@ -54,6 +56,9 @@ model Activity {
   laps              ActivityLap[]
   comparisons       ComparisonActivity[]
   aiAnalyses        AIAnalysis[]
+  competitionGoalId String?              @map("competition_goal_id")
+  competitionGoal   CompetitionGoal?     @relation("RaceSimulations", fields: [competitionGoalId], references: [id], onDelete: SetNull)
+
   
   @@index([userId])
   @@index([startDate])
@@ -126,6 +131,27 @@ model AIAnalysis {
   @@map("ai_analyses")
 }
 
+model CompetitionGoal {
+  id             String       @id @default(uuid())
+  userId         String       @map("user_id")
+  name           String
+  type           ActivityType
+  distanceKm     Float        @map("distance_km")
+  elevationM     Float        @map("elevation_m")
+  targetDate     DateTime     @map("target_date")
+  targetTime     String?      @map("target_time")
+  terrainType    String?      @map("terrain_type")
+  notes          String?      @db.Text
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  simulations    Activity[]   @relation("RaceSimulations")
+
+  @@index([userId])
+  @@map("competition_goals")
+}
+
+
 enum Role {
   ADMIN
   ATHLETE
@@ -156,4 +182,6 @@ enum AIAnalysisType {
   FATIGUE_ANALYSIS
   TIME_PREDICTION
   GENERAL_INSIGHT
+  COMPETITION_STRATEGY
 }
+

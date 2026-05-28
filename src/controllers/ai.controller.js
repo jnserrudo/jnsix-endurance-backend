@@ -621,6 +621,132 @@ Proporciona respuestas cortas, directas y formateadas en Markdown claras y legib
   }
 };
 
+const analyzeCompetitionGoal = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params; // Competition ID
+
+    // 1. Recuperar la competencia con sus simulaciones asociadas
+    const competition = await prisma.competitionGoal.findFirst({
+      where: { id, userId },
+      include: {
+        simulations: {
+          include: {
+            laps: {
+              orderBy: { splitNum: 'asc' }
+            }
+          }
+        }
+      }
+    });
+
+    if (!competition) {
+      return res.status(404).json({ error: 'Competencia no encontrada.' });
+    }
+
+    // 2. Obtener las últimas 10 actividades para el contexto del historial
+    const recentActivities = await prisma.activity.findMany({
+      where: { userId },
+      orderBy: { startDate: 'desc' },
+      take: 10,
+      select: {
+        name: true,
+        type: true,
+        distanceKm: true,
+        elevationM: true,
+        movingTime: true,
+        startDate: true,
+        averageHr: true
+      }
+    });
+
+    const activitiesSummary = recentActivities.map(a => 
+      `- ${a.startDate.toISOString().split('T')[0]} | ${a.name} | ${a.type} | ${a.distanceKm.toFixed(1)}km | +${Math.round(a.elevationM)}m | ${Math.floor(a.movingTime/60)}m | FC: ${a.averageHr || 'N/A'}`
+    ).join('\n');
+
+    // 3. Resumir entrenamientos de simulación específicamente seleccionados
+    const simulationsSummary = competition.simulations.map((s, idx) => {
+      const pace = s.distanceKm > 0 ? (s.movingTime / 60) / s.distanceKm : 0;
+      let minP = Math.floor(pace);
+      let secP = Math.round((pace - minP) * 60);
+      if (secP === 60) { minP += 1; secP = 0; }
+      const formattedPace = `${minP}:${secP.toString().padStart(2, '0')}`;
+
+      return `[Simulación #${idx+1}]
+- Nombre: ${s.name}
+- Tipo: ${s.type}
+- Distancia Realizada: ${s.distanceKm.toFixed(2)} km
+- Desnivel Realizado: ${Math.round(s.elevationM)}m
+- Tiempo: ${Math.floor(s.movingTime/60)}m ${s.movingTime%60}s
+- Ritmo Promedio: ${formattedPace} min/km
+- FC Promedio: ${s.averageHr || 'N/A'} bpm
+- Detalle por kilómetro (splits): ${s.laps.map(l => `\n  * Km ${l.splitNum}: ${l.distance.toFixed(2)}km en pace ${l.averagePace.toFixed(2)} min/km (FC: ${l.averageHr || 'N/A'})`).join('')}`;
+    }).join('\n\n');
+
+    // 4. Formular el prompt científico-deportivo integral
+    const systemPrompt = `Eres JNSIX AI Strategy Coach, un director deportivo e ingeniero de rendimiento experto en planificación, ritmo (pacing) y nutrición de ultra-distancia, trail running, ciclismo y triatlón.
+Tu tarea es analizar el objetivo de competencia del atleta frente a su historial deportivo y sus entrenamientos de simulación específicos elegidos por él. Entregarás un reporte extremadamente profesional, motivador y con base científica en Markdown.`;
+
+    const userPrompt = `Analiza mi preparación para la siguiente competencia objetivo:
+
+COMPETENCIA OBJETIVO:
+- Nombre: ${competition.name}
+- Disciplina: ${competition.type}
+- Distancia Objetivo: ${competition.distanceKm} km
+- Desnivel Objetivo: ${competition.elevationM} m
+- Tipo de Terreno/Dificultad: ${competition.terrainType || 'No especificado'}
+- Fecha del Evento: ${competition.targetDate.toISOString().split('T')[0]}
+- Tiempo Objetivo de Carrera: ${competition.targetTime || 'Sin tiempo objetivo'}
+- Notas Adicionales: ${competition.notes || 'Ninguna'}
+
+MI HISTORIAL DE ENTRENAMIENTO RECIENTE (Últimas 10 sesiones):
+${activitiesSummary || 'Sin historial reciente cargado.'}
+
+ENTRENAMIENTOS DE SIMULACIÓN ESPECÍFICOS QUE HE SELECCIONADO PARA ESTA CARRERA:
+${simulationsSummary || 'No he seleccionado simulaciones específicas todavía.'}
+
+Por favor, estructura tu reporte en las siguientes secciones exactas y legibles para móviles:
+
+### 1. 📊 EVALUACIÓN DE PREPARACIÓN Y CONFIANZA
+- Compara las distancias y desniveles de mis entrenamientos (tanto del historial como especialmente de las simulaciones seleccionadas) frente a los requisitos de la competencia.
+- Estima mi nivel de confianza y preparación física actual (escala del 1 al 10) y justifica el por qué.
+
+### 2. 🏃‍♂️ ESTRATEGIA DE RITMO Y PENDIENTES (GRADE PACING)
+- Define cómo debo distribuir mi esfuerzo a lo largo de la carrera (estrategia conservadora, negativa, regular).
+- Ofrece pautas específicas de ritmo o esfuerzo según la pendiente (ej: cómo afrontar subidas duras y cuándo caminar activamente en Trail, o potencia en ciclismo).
+
+### 3. 🧪 PLAN DE NUTRICIÓN E HIDRATACIÓN CIENTÍFICA
+- Recomienda los gramos de carbohidratos óptimos por hora basados en la distancia y duración estimada.
+- Detalla un esquema de hidratación y reposición de sales minerales (sodio) según el esfuerzo.
+- Ofrece un plan de carga de carbohidratos para las 36 horas previas.
+
+### 4. 📉 PLANIFICACIÓN DE DESCARGA (TAPER ADVISOR)
+- Diseña una guía compacta de tapering para las últimas 2 o 3 semanas anteriores a la competencia, indicando a qué porcentajes reducir el volumen e intensidad de mis entrenamientos.
+
+### 5. 💡 CONSEJOS TÁCTICOS Y MENTALES
+- Brinda 3 consejos clave específicos para el tipo de terreno/disciplina que me ayudarán a rendir al máximo.`;
+
+    const result = await aiService.chatWithCoach(systemPrompt, [{ role: 'user', content: userPrompt }]);
+
+    // 5. Registrar el análisis en la base de datos
+    const analysis = await prisma.aIAnalysis.create({
+      data: {
+        userId,
+        type: 'COMPETITION_STRATEGY',
+        prompt: `Analizar competencia: ${competition.name} (ID: ${id})`,
+        response: result.response,
+        model: result.model,
+        tokensUsed: result.tokensUsed
+      }
+    });
+
+    res.json(analysis);
+  } catch (error) {
+    console.error('🔴 [ANALYZE COMPETITION AI] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   analyzeActivity,
   generateTrainingPlan,
@@ -631,5 +757,7 @@ module.exports = {
   analyzeMultipleActivities,
   compareActivities,
   analyzeTrends,
-  chatWithCoach
+  chatWithCoach,
+  analyzeCompetitionGoal
 };
+
