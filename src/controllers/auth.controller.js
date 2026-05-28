@@ -114,8 +114,8 @@ const stravaAuth = async (req, res) => {
 const stravaCallback = async (req, res) => {
   try {
     console.log('🔵 [STRAVA CALLBACK] Recibiendo callback de Strava');
-    const { code } = req.query;
-    console.log('🔵 [STRAVA CALLBACK] Code:', code ? 'Recibido' : 'No recibido');
+    const { code, state } = req.query;
+    console.log('🔵 [STRAVA CALLBACK] Code:', code ? 'Recibido' : 'No recibido', 'State:', state);
 
     if (!code) {
       console.error('🔴 [STRAVA CALLBACK] Error: No se recibió código');
@@ -156,15 +156,31 @@ const stravaCallback = async (req, res) => {
     const token = generateToken(user.id, user.email, user.role);
     console.log('✅ [STRAVA CALLBACK] Token JWT generado para usuario:', user.id);
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const redirectUrl = `${frontendUrl}/auth/callback?token=${token}`;
+    let redirectUrl;
+    if (state && state.startsWith('mobile_')) {
+      const mobileDeepLink = state.replace('mobile_', '');
+      redirectUrl = `${mobileDeepLink}?token=${token}`;
+    } else {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      redirectUrl = `${frontendUrl}/auth/callback?token=${token}`;
+    }
+    
     console.log('🔵 [STRAVA CALLBACK] Redirigiendo a:', redirectUrl);
     res.redirect(redirectUrl);
   } catch (error) {
     console.error('🔴 [STRAVA CALLBACK] Error:', error.message);
     console.error('🔴 [STRAVA CALLBACK] Stack:', error.stack);
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    res.redirect(`${frontendUrl}/auth/error?message=${encodeURIComponent(error.message)}`);
+    
+    const { state } = req.query;
+    let errorRedirectUrl;
+    if (state && state.startsWith('mobile_')) {
+      const mobileDeepLink = state.replace('mobile_', '');
+      errorRedirectUrl = `${mobileDeepLink}?error=${encodeURIComponent(error.message)}`;
+    } else {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      errorRedirectUrl = `${frontendUrl}/auth/error?message=${encodeURIComponent(error.message)}`;
+    }
+    res.redirect(errorRedirectUrl);
   }
 };
 
