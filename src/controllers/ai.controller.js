@@ -598,7 +598,7 @@ ${activitiesSummary || 'El atleta no tiene actividades registradas todavía.'}
 
 Usa este historial deportivo como contexto principal para responder preguntas sobre su volumen de entrenamiento, fatiga, consejos de recuperación, ritmos, progresiones y planeamiento de sesiones.
 Si te preguntan algo fuera de su contexto o de entrenamiento, redirígelos amablemente hacia su preparación física.
-Proporciona respuestas cortas, directas y formateadas en Markdown claras y legibles en dispositivos móviles.`;
+Proporciona respuestas cortas, directas y formateadas en Markdown claras y legibles en dispositivos móviles. No utilices ningún tipo de emoji en tus respuestas, solo texto plano o markdown.`;
 
     const result = await aiService.chatWithCoach(systemPrompt, messages);
 
@@ -707,23 +707,23 @@ ${simulationsSummary || 'No he seleccionado simulaciones específicas todavía.'
 
 Por favor, estructura tu reporte en las siguientes secciones exactas y legibles para móviles:
 
-### 1. 📊 EVALUACIÓN DE PREPARACIÓN Y CONFIANZA
+### 1. EVALUACION DE PREPARACION Y CONFIANZA
 - Compara las distancias y desniveles de mis entrenamientos (tanto del historial como especialmente de las simulaciones seleccionadas) frente a los requisitos de la competencia.
 - Estima mi nivel de confianza y preparación física actual (escala del 1 al 10) y justifica el por qué.
 
-### 2. 🏃‍♂️ ESTRATEGIA DE RITMO Y PENDIENTES (GRADE PACING)
+### 2. ESTRATEGIA DE RITMO Y PENDIENTES
 - Define cómo debo distribuir mi esfuerzo a lo largo de la carrera (estrategia conservadora, negativa, regular).
 - Ofrece pautas específicas de ritmo o esfuerzo según la pendiente (ej: cómo afrontar subidas duras y cuándo caminar activamente en Trail, o potencia en ciclismo).
 
-### 3. 🧪 PLAN DE NUTRICIÓN E HIDRATACIÓN CIENTÍFICA
+### 3. PLAN DE NUTRICION E HIDRATACION CIENTIFICA
 - Recomienda los gramos de carbohidratos óptimos por hora basados en la distancia y duración estimada.
 - Detalla un esquema de hidratación y reposición de sales minerales (sodio) según el esfuerzo.
 - Ofrece un plan de carga de carbohidratos para las 36 horas previas.
 
-### 4. 📉 PLANIFICACIÓN DE DESCARGA (TAPER ADVISOR)
+### 4. PLANIFICACION DE DESCARGA
 - Diseña una guía compacta de tapering para las últimas 2 o 3 semanas anteriores a la competencia, indicando a qué porcentajes reducir el volumen e intensidad de mis entrenamientos.
 
-### 5. 💡 CONSEJOS TÁCTICOS Y MENTALES
+### 5. CONSEJOS TACTICOS Y MENTALES
 - Brinda 3 consejos clave específicos para el tipo de terreno/disciplina que me ayudarán a rendir al máximo.`;
 
     const result = await aiService.chatWithCoach(systemPrompt, [{ role: 'user', content: userPrompt }]);

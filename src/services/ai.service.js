@@ -60,7 +60,7 @@ class AIService {
       messages: [
         {
           role: 'system',
-          content: 'Eres un entrenador experto en triatlón y trail running. Proporciona análisis técnicos, precisos y accionables basados en datos de actividades deportivas.'
+          content: 'Eres un entrenador experto en triatlón y trail running. Proporciona análisis técnicos, precisos y accionables basados en datos de actividades deportivas. No utilices ningún tipo de emoji en tus respuestas, solo texto plano o markdown.'
         },
         {
           role: 'user',
@@ -82,7 +82,7 @@ class AIService {
     const response = await this.anthropic.messages.create({
       model: this.model,
       max_tokens: 1500,
-      system: 'Eres un entrenador experto en triatlón y trail running. Proporciona análisis técnicos, precisos y accionables basados en datos de actividades deportivas.',
+      system: 'Eres un entrenador experto en triatlón y trail running. Proporciona análisis técnicos, precisos y accionables basados en datos de actividades deportivas. No utilices ningún tipo de emoji en tus respuestas, solo texto plano o markdown.',
       messages: [
         {
           role: 'user',
@@ -104,7 +104,7 @@ class AIService {
       messages: [
         {
           role: 'system',
-          content: 'Eres un entrenador experto en triatlón y trail running. Proporciona análisis técnicos, precisos y accionables basados en datos de actividades deportivas.'
+          content: 'Eres un entrenador experto en triatlón y trail running. Proporciona análisis técnicos, precisos y accionables basados en datos de actividades deportivas. No utilices ningún tipo de emoji en tus respuestas, solo texto plano o markdown.'
         },
         {
           role: 'user',
