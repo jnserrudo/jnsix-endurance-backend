@@ -236,11 +236,44 @@ const getCurrentUser = async (req, res) => {
   }
 };
 
+const disconnectStrava = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    console.log('🟢 [DISCONNECT STRAVA] Usuario ID:', userId);
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        stravaId: null,
+        stravaAccessToken: null,
+        stravaRefreshToken: null,
+        stravaTokenExpiry: null,
+        lastSyncDate: null
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        stravaId: true,
+        createdAt: true
+      }
+    });
+
+    console.log('✅ [DISCONNECT STRAVA] Strava desconectado para:', updatedUser.email);
+    res.json(updatedUser);
+  } catch (error) {
+    console.error('🔴 [DISCONNECT STRAVA] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   register,
   login,
   stravaAuth,
   stravaCallback,
   refreshToken,
-  getCurrentUser
+  getCurrentUser,
+  disconnectStrava
 };
+
