@@ -83,9 +83,10 @@ class SyncQueueService extends EventEmitter {
 
         // Upsert para evitar duplicados
         for (const data of activityData) {
+          const { id, userId, stravaId, ...updateData } = data;
           await prisma.activity.upsert({
             where: { stravaId: data.stravaId },
-            update: data,
+            update: updateData,
             create: data
           });
         }
