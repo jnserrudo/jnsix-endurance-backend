@@ -36,7 +36,7 @@ const getFeed = async (req, res) => {
       take: PAGE_SIZE,
       include: {
         user: { select: { id: true, email: true } },
-        _count: { select: { comments: true, reactions: true } }
+        _count: { select: { comments: true } }
       }
     });
 
@@ -55,7 +55,7 @@ const getFeed = async (req, res) => {
       include: {
         user: { select: { id: true, email: true } },
         activity: { select: { id: true, name: true } },
-        _count: { select: { comments: true, reactions: true } }
+        _count: { select: { comments: true } }
       }
     });
 
