@@ -19,7 +19,7 @@ const register = async (req, res) => {
     const { email, password, username } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+      return res.status(400).json({ error: 'Por favor, ingresa un correo y una contraseña.' });
     }
 
     const existingUser = await prisma.user.findFirst({
@@ -33,9 +33,9 @@ const register = async (req, res) => {
 
     if (existingUser) {
       if (existingUser.email === email) {
-        return res.status(409).json({ error: 'User already exists with this email' });
+        return res.status(409).json({ error: 'Ya existe una cuenta registrada con este correo.' });
       } else {
-        return res.status(409).json({ error: 'Username is already taken' });
+        return res.status(409).json({ error: 'Este nombre de usuario ya está ocupado, por favor elige otro.' });
       }
     }
 
@@ -94,7 +94,7 @@ const login = async (req, res) => {
     const identifier = email;
 
     if (!identifier || !password) {
-      return res.status(400).json({ error: 'Email/Username and password are required' });
+      return res.status(400).json({ error: 'Por favor, completa tu correo/usuario y tu contraseña.' });
     }
 
     const isEmail = identifier.includes('@');
@@ -104,13 +104,13 @@ const login = async (req, res) => {
     });
 
     if (!user || !user.password) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: 'Tus credenciales son incorrectas. Verifica tu usuario/correo y contraseña.' });
     }
 
     const isValidPassword = await bcrypt.compare(password, user.password);
 
     if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: 'Tus credenciales son incorrectas. Verifica tu usuario/correo y contraseña.' });
     }
 
     const token = generateToken(user.id, user.email, user.role);
@@ -151,7 +151,7 @@ const stravaCallback = async (req, res) => {
 
     if (!code) {
       console.error('🔴 [STRAVA CALLBACK] Error: No se recibió código');
-      return res.status(400).json({ error: 'Authorization code required' });
+      return res.status(400).json({ error: 'Falta el código de autorización de Strava.' });
     }
 
     console.log('🔵 [STRAVA CALLBACK] Intercambiando código por token...');
@@ -221,7 +221,7 @@ const refreshToken = async (req, res) => {
     const { token } = req.body;
 
     if (!token) {
-      return res.status(400).json({ error: 'Token required' });
+      return res.status(400).json({ error: 'Se requiere un token de sesión para continuar.' });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true });
@@ -231,7 +231,7 @@ const refreshToken = async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'No hemos podido encontrar tu cuenta.' });
     }
 
     const newToken = generateToken(user.id, user.email, user.role);
@@ -257,7 +257,7 @@ const getCurrentUser = async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'No hemos podido encontrar tu cuenta.' });
     }
 
     console.log('✅ [GET CURRENT USER] Usuario encontrado:', user.email, 'StravaId:', user.stravaId);
@@ -302,22 +302,22 @@ const disconnectStrava = async (req, res) => {
 const verifyEmail = async (req, res) => {
   try {
     const { token } = req.body;
-    if (!token) return res.status(400).json({ error: 'Token is required' });
+    if (!token) return res.status(400).json({ error: 'Falta el código de verificación.' });
 
     const emailVerification = await prisma.emailVerification.findUnique({
       where: { token }
     });
 
     if (!emailVerification) {
-      return res.status(400).json({ error: 'Invalid or expired verification token' });
+      return res.status(400).json({ error: 'El código de verificación es inválido o ha caducado.' });
     }
 
     if (emailVerification.verified) {
-      return res.status(400).json({ error: 'Email is already verified' });
+      return res.status(400).json({ error: 'Este correo electrónico ya ha sido verificado.' });
     }
 
     if (new Date() > emailVerification.expiresAt) {
-      return res.status(400).json({ error: 'Verification token has expired' });
+      return res.status(400).json({ error: 'Tu código de verificación ha expirado. Por favor, solicita uno nuevo.' });
     }
 
     await prisma.$transaction([
@@ -350,10 +350,10 @@ const verifyEmail = async (req, res) => {
 const resendVerification = async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email is required' });
+    if (!email) return res.status(400).json({ error: 'Por favor, ingresa tu correo electrónico.' });
 
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(404).json({ error: 'No hemos podido encontrar una cuenta con este correo.' });
 
     // Invalidate previous tokens
     await prisma.emailVerification.deleteMany({
@@ -385,11 +385,11 @@ const resendVerification = async (req, res) => {
 const unsubscribe = async (req, res) => {
   try {
     const { token } = req.body;
-    if (!token) return res.status(400).json({ error: 'Token is required' });
+    if (!token) return res.status(400).json({ error: 'Falta el token de validación.' });
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (decoded.purpose !== 'unsubscribe') {
-      return res.status(400).json({ error: 'Invalid token purpose' });
+      return res.status(400).json({ error: 'El código proporcionado no es válido para esta acción.' });
     }
 
     const { email } = decoded;
@@ -399,12 +399,12 @@ const unsubscribe = async (req, res) => {
       data: { marketingEnabled: false }
     });
 
-    res.json({ message: 'Successfully unsubscribed from marketing emails' });
+    res.json({ message: 'Te has desuscrito de los correos promocionales con éxito.' });
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
-      return res.status(400).json({ error: 'Unsubscribe token has expired' });
+      return res.status(400).json({ error: 'El enlace para desuscribirse ha caducado.' });
     }
-    return res.status(400).json({ error: 'Invalid unsubscribe token' });
+    return res.status(400).json({ error: 'El enlace para desuscribirse no es válido.' });
   }
 };
 
