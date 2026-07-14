@@ -745,6 +745,64 @@ Por favor, estructura tu reporte en las siguientes secciones exactas y legibles 
   }
 };
 
+/**
+ * Sugiere ejercicios de fuerza/movilidad complementarios en base a la ultima
+ * actividad de resistencia del usuario. Logica basada en reglas (sin LLM)
+ * para respuesta instantanea y costo cero.
+ */
+const RULES_BY_TYPE = {
+  RUN: { categories: ['upper legs', 'waist'], targets: ['glutes', 'abs', 'hamstrings'] },
+  TRAIL_RUN: { categories: ['upper legs', 'lower legs'], targets: ['glutes', 'calves', 'quadriceps'] },
+  HIKE: { categories: ['upper legs', 'lower legs'], targets: ['glutes', 'calves'] },
+  RIDE: { categories: ['upper legs', 'back'], targets: ['quadriceps', 'lower back'] },
+  VIRTUAL_RIDE: { categories: ['upper legs', 'back'], targets: ['quadriceps', 'lower back'] },
+  SWIM: { categories: ['shoulders', 'back'], targets: ['delts', 'lats'] },
+  WALK: { categories: ['waist'], targets: ['abs'] },
+  VIRTUAL_RUN: { categories: ['upper legs', 'waist'], targets: ['glutes', 'abs'] },
+  OTHER: { categories: ['waist'], targets: ['abs'] }
+};
+
+const suggestComplementaryExercises = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const lastActivity = await prisma.activity.findFirst({
+      where: { userId },
+      orderBy: { startDate: 'desc' }
+    });
+
+    const rule = (lastActivity && RULES_BY_TYPE[lastActivity.type]) || RULES_BY_TYPE.RUN;
+    const isLongSession = lastActivity ? (lastActivity.movingTime || 0) > 3600 : false;
+
+    const exercises = await prisma.exercise.findMany({
+      where: {
+        OR: [
+          { category: { in: rule.categories } },
+          { target: { in: rule.targets } }
+        ],
+        equipment: isLongSession ? undefined : 'body weight'
+      },
+      take: 6,
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        target: true,
+        equipment: true,
+        image: true,
+        gifUrl: true
+      }
+    });
+
+    res.json({
+      basedOnActivity: lastActivity ? { id: lastActivity.id, type: lastActivity.type, name: lastActivity.name } : null,
+      exercises
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   analyzeActivity,
   generateTrainingPlan,
@@ -756,6 +814,7 @@ module.exports = {
   compareActivities,
   analyzeTrends,
   chatWithCoach,
-  analyzeCompetitionGoal
+  analyzeCompetitionGoal,
+  suggestComplementaryExercises
 };
 

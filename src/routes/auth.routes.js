@@ -8,6 +8,8 @@ router.post('/login', authController.login);
 router.post('/verify-email', authController.verifyEmail);
 router.post('/resend-verification', authController.resendVerification);
 router.post('/unsubscribe', authController.unsubscribe);
+router.post('/push-token', authenticateToken, authController.registerPushToken);
+router.delete('/push-token', authenticateToken, authController.removePushToken);
 router.get('/strava', authController.stravaAuth);
 router.get('/strava/callback', authController.stravaCallback);
 router.post('/strava/disconnect', authenticateToken, authController.disconnectStrava);

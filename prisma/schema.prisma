@@ -11,33 +11,60 @@ datasource db {
 }
 
 model User {
-  id                 String               @id @default(uuid())
-  email              String               @unique
-  username           String?              @unique
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  username           String?   @unique
   password           String?
-  role               Role                 @default(ATHLETE)
-  stravaId           String?              @unique @map("strava_id")
-  stravaAccessToken  String?              @map("strava_access_token")
-  stravaRefreshToken String?              @map("strava_refresh_token")
-  stravaTokenExpiry  DateTime?            @map("strava_token_expiry")
-  lastSyncDate       DateTime?            @map("last_sync_date")
-  isActive           Boolean              @default(true) @map("is_active")
-  marketingEnabled   Boolean              @default(true) @map("marketing_enabled")
-  deletedAt          DateTime?            @map("deleted_at")
-  emailVerified      Boolean              @default(false) @map("email_verified")
-  createdAt          DateTime             @default(now()) @map("created_at")
-  updatedAt          DateTime             @updatedAt @map("updated_at")
-  activities         Activity[]
-  comparisons        ActivityComparison[]
-  aiAnalyses         AIAnalysis[]
-  competitionGoals   CompetitionGoal[]
+  role               Role      @default(ATHLETE)
+  stravaId           String?   @unique @map("strava_id")
+  stravaAccessToken  String?   @map("strava_access_token")
+  stravaRefreshToken String?   @map("strava_refresh_token")
+  stravaTokenExpiry  DateTime? @map("strava_token_expiry")
+  lastSyncDate       DateTime? @map("last_sync_date")
+  isActive           Boolean   @default(true) @map("is_active")
+  marketingEnabled   Boolean   @default(true) @map("marketing_enabled")
+  deletedAt          DateTime? @map("deleted_at")
+  emailVerified      Boolean   @default(false) @map("email_verified")
+
+  // Perfil de usuario
+  firstName         String?    @map("first_name")
+  lastName          String?    @map("last_name")
+  avatarUrl         String?    @map("avatar_url")
+  coverUrl          String?    @map("cover_url")
+  bio               String?    @db.Text
+  birthDate         DateTime?  @map("birth_date")
+  gender            String?
+  heightCm          Float?     @map("height_cm")
+  weightKg          Float?     @map("weight_kg")
+  primarySport      String?    @map("primary_sport")
+  experienceLevel   String?    @map("experience_level")
+  phone             String?
+  city              String?
+  country           String?
+  instagramUrl      String?    @map("instagram_url")
+  profileVisibility Visibility @default(PUBLIC) @map("profile_visibility")
+  statsVisible      Boolean    @default(true) @map("stats_visible")
+  activitiesVisible Boolean    @default(true) @map("activities_visible")
+
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+  activities       Activity[]
+  comparisons      ActivityComparison[]
+  aiAnalyses       AIAnalysis[]
+  competitionGoals CompetitionGoal[]
 
   userRoles             UserRole[]
   friendshipsSent       Friendship[]             @relation("FriendshipUser")
   friendshipsReceived   Friendship[]             @relation("FriendshipFriend")
   ownedGroups           Group[]                  @relation("GroupOwner")
   groupMemberships      GroupMember[]
+  groupJoinRequests     GroupJoinRequest[]
   communityMemberships  CommunityMember[]
+  communityJoinRequests CommunityJoinRequest[]
+  invitedToGroups       GroupInvitation[]        @relation("GroupInvitationInvitedUser")
+  invitedByGroups       GroupInvitation[]        @relation("GroupInvitationInvitedBy")
+  invitedToCommunities  CommunityInvitation[]    @relation("CommunityInvitationInvitedUser")
+  invitedByCommunities  CommunityInvitation[]    @relation("CommunityInvitationInvitedBy")
   scoreEvents           ScoreEvent[]
   userScore             UserScore?
   posts                 Post[]
@@ -55,8 +82,9 @@ model User {
   discountRedemptions   DiscountRedemption[]
   emailVerifications    EmailVerification[]
   transactions          Transaction[]
+  workoutSessions       WorkoutSession[]
 
-  subscriptionTier      String               @default("FREE") @map("subscription_tier")
+  subscriptionTier String @default("FREE") @map("subscription_tier")
 
   @@map("users")
 }
@@ -298,20 +326,22 @@ model Friendship {
 }
 
 model Group {
-  id          String        @id @default(uuid())
-  name        String
-  description String?
-  avatarUrl   String?       @map("avatar_url")
-  ownerId     String        @map("owner_id")
-  visibility  Visibility    @default(PUBLIC)
-  isActive    Boolean       @default(true) @map("is_active")
-  deletedAt   DateTime?     @map("deleted_at")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
-  owner       User          @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  members     GroupMember[]
-  subgroups   Subgroup[]
-  challenges  Challenge[]
+  id           String             @id @default(uuid())
+  name         String
+  description  String?
+  avatarUrl    String?            @map("avatar_url")
+  ownerId      String             @map("owner_id")
+  visibility   Visibility         @default(PUBLIC)
+  isActive     Boolean            @default(true) @map("is_active")
+  deletedAt    DateTime?          @map("deleted_at")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  owner        User               @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members      GroupMember[]
+  subgroups    Subgroup[]
+  challenges   Challenge[]
+  invitations  GroupInvitation[]
+  joinRequests GroupJoinRequest[]
 
   @@index([ownerId])
   @@map("groups")
@@ -343,18 +373,86 @@ model Subgroup {
   @@map("subgroups")
 }
 
+model GroupInvitation {
+  id            String           @id @default(uuid())
+  groupId       String           @map("group_id")
+  invitedUserId String           @map("invited_user_id")
+  invitedById   String           @map("invited_by_id")
+  status        InvitationStatus @default(PENDING)
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  group         Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  invitedUser   User             @relation("GroupInvitationInvitedUser", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedBy     User             @relation("GroupInvitationInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@index([invitedUserId])
+  @@map("group_invitations")
+}
+
+model GroupJoinRequest {
+  id        String           @id @default(uuid())
+  groupId   String           @map("group_id")
+  userId    String           @map("user_id")
+  status    InvitationStatus @default(PENDING)
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+  group     Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@index([userId])
+  @@map("group_join_requests")
+}
+
+model CommunityInvitation {
+  id            String           @id @default(uuid())
+  communityId   String           @map("community_id")
+  invitedUserId String           @map("invited_user_id")
+  invitedById   String           @map("invited_by_id")
+  status        InvitationStatus @default(PENDING)
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  community     Community        @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  invitedUser   User             @relation("CommunityInvitationInvitedUser", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedBy     User             @relation("CommunityInvitationInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([communityId])
+  @@index([invitedUserId])
+  @@map("community_invitations")
+}
+
+model CommunityJoinRequest {
+  id          String           @id @default(uuid())
+  communityId String           @map("community_id")
+  userId      String           @map("user_id")
+  status      InvitationStatus @default(PENDING)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  community   Community        @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([communityId])
+  @@index([userId])
+  @@map("community_join_requests")
+}
+
 model Community {
-  id          String            @id @default(uuid())
-  name        String
-  description String?
-  region      String?
-  type        CommunityType     @default(TOPIC)
-  isActive    Boolean           @default(true) @map("is_active")
-  deletedAt   DateTime?         @map("deleted_at")
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
-  members     CommunityMember[]
-  challenges  Challenge[]
+  id           String                 @id @default(uuid())
+  name         String
+  description  String?
+  avatarUrl    String?                @map("avatar_url")
+  region       String?
+  type         CommunityType          @default(TOPIC)
+  visibility   Visibility             @default(PUBLIC)
+  isActive     Boolean                @default(true) @map("is_active")
+  deletedAt    DateTime?              @map("deleted_at")
+  createdAt    DateTime               @default(now()) @map("created_at")
+  updatedAt    DateTime               @updatedAt @map("updated_at")
+  members      CommunityMember[]
+  challenges   Challenge[]
+  invitations  CommunityInvitation[]
+  joinRequests CommunityJoinRequest[]
 
   @@map("communities")
 }
@@ -811,7 +909,18 @@ enum NotificationType {
   PLAN_CHANGED
   REACTION
   GROUP_INVITE
+  GROUP_JOIN_REQUEST
+  GROUP_JOIN_RESPONSE
+  COMMUNITY_INVITE
+  COMMUNITY_JOIN_REQUEST
+  COMMUNITY_JOIN_RESPONSE
   SYSTEM
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
 }
 
 enum PlanInterval {
@@ -849,7 +958,7 @@ enum PaymentStatus {
   PENDING
   COMPLETED
   FAILED
-  REJECTED 
+  REJECTED
 }
 
 model Transaction {
@@ -866,6 +975,71 @@ model Transaction {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  user            User          @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
   @@map("transactions")
+}
+
+// ============================================================
+// Biblioteca de Ejercicios / Entrenamiento de Fuerza
+// ============================================================
+
+model Exercise {
+  id               String       @id
+  name             String
+  category         String
+  bodyPart         String       @map("body_part")
+  equipment        String
+  target           String
+  muscleGroup      String       @map("muscle_group")
+  secondaryMuscles Json?        @map("secondary_muscles")
+  instructionsEn   String       @map("instructions_en") @db.Text
+  instructionsEs   String       @map("instructions_es") @db.Text
+  instructionsJson Json         @map("instructions_json")
+  mediaId          String?      @map("media_id")
+  image            String?
+  gifUrl           String?      @map("gif_url")
+  attribution      String?
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  workoutSets      WorkoutSet[]
+
+  @@index([category])
+  @@index([equipment])
+  @@index([target])
+  @@map("exercises")
+}
+
+model WorkoutSession {
+  id          String       @id @default(uuid())
+  userId      String       @map("user_id")
+  name        String       @default("Entrenamiento de fuerza")
+  notes       String?      @db.Text
+  startedAt   DateTime     @default(now()) @map("started_at")
+  completedAt DateTime?    @map("completed_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sets        WorkoutSet[]
+
+  @@index([userId])
+  @@map("workout_sessions")
+}
+
+model WorkoutSet {
+  id          String         @id @default(uuid())
+  sessionId   String         @map("session_id")
+  exerciseId  String         @map("exercise_id")
+  setNumber   Int            @map("set_number")
+  reps        Int?
+  weightKg    Float?         @map("weight_kg")
+  restSeconds Int?           @map("rest_seconds")
+  completedAt DateTime?      @map("completed_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  session     WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exercise    Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([exerciseId])
+  @@map("workout_sets")
 }

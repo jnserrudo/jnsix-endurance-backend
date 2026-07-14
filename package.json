@@ -11,7 +11,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "seed": "node src/seed.js",
-    "seed:admin": "node src/seedAdmin.js"
+    "seed:admin": "node src/seedAdmin.js",
+    "seed:exercises": "node src/scripts/importExercises.js"
   },
   "keywords": [],
   "author": "",

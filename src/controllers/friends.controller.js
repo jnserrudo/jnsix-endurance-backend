@@ -6,13 +6,31 @@ const searchUsers = async (req, res) => {
     const { q = '' } = req.query;
     const userId = req.user.id;
 
+    if (!q || q.trim().length === 0) {
+      return res.json([]);
+    }
+
     const users = await prisma.user.findMany({
       where: {
         id: { not: userId },
         isActive: true,
-        email: { contains: q }
+        deletedAt: null,
+        OR: [
+          { email: { contains: q } },
+          { username: { contains: q } },
+          { firstName: { contains: q } },
+          { lastName: { contains: q } }
+        ]
       },
-      select: { id: true, email: true, role: true },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        avatarUrl: true,
+        role: true
+      },
       take: 20
     });
 
@@ -103,14 +121,16 @@ const listFriends = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    const userCardSelect = { id: true, email: true, username: true, firstName: true, lastName: true, avatarUrl: true };
+
     const friendships = await prisma.friendship.findMany({
       where: {
         status: 'ACCEPTED',
         OR: [{ userId }, { friendId: userId }]
       },
       include: {
-        user: { select: { id: true, email: true } },
-        friend: { select: { id: true, email: true } }
+        user: { select: userCardSelect },
+        friend: { select: userCardSelect }
       }
     });
 
@@ -127,7 +147,7 @@ const listPendingRequests = async (req, res) => {
 
     const pending = await prisma.friendship.findMany({
       where: { friendId: userId, status: 'PENDING' },
-      include: { user: { select: { id: true, email: true } } }
+      include: { user: { select: { id: true, email: true, username: true, firstName: true, lastName: true, avatarUrl: true } } }
     });
 
     res.json(pending);
@@ -141,12 +161,21 @@ const removeFriend = async (req, res) => {
     const userId = req.user.id;
     const { id } = req.params;
 
-    const friendship = await prisma.friendship.findUnique({ where: { id } });
-    if (!friendship || (friendship.userId !== userId && friendship.friendId !== userId)) {
+    const friendship = await prisma.friendship.findFirst({
+      where: {
+        status: 'ACCEPTED',
+        OR: [
+          { userId, friendId: id },
+          { userId: id, friendId: userId }
+        ]
+      }
+    });
+
+    if (!friendship) {
       return res.status(404).json({ error: 'Friendship not found' });
     }
 
-    await prisma.friendship.delete({ where: { id } });
+    await prisma.friendship.delete({ where: { id: friendship.id } });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });

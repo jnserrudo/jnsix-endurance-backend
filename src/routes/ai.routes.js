@@ -17,5 +17,6 @@ router.post('/coach', checkPlanLimit('ai_coach.daily_limit'), aiController.chatW
 router.post('/analyze-competition/:id', checkPlanLimit('ai_coach.daily_limit'), aiController.analyzeCompetitionGoal);
 router.get('/history', aiController.getAnalysisHistory);
 router.get('/usage', aiController.getUsageStats);
+router.get('/exercise-suggestions', aiController.suggestComplementaryExercises);
 
 module.exports = router;

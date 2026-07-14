@@ -881,6 +881,14 @@ const getDashboardMetrics = async (req, res) => {
 
     const streak = calculateStreak(allActivities);
 
+    // Score y Rank
+    const userScore = await prisma.userScore.findUnique({
+      where: { userId },
+      include: {
+        currentRank: true
+      }
+    });
+
     res.json({
       thisWeek: {
         distance: thisWeekDistance,
@@ -896,7 +904,12 @@ const getDashboardMetrics = async (req, res) => {
         distance: longestActivity?.distanceKm || 0,
         name: longestActivity?.name || 'N/A'
       },
-      streak
+      streak,
+      score: userScore ? {
+        points: userScore.totalPoints,
+        rankName: userScore.currentRank?.name || 'Novato',
+        iconUrl: userScore.currentRank?.iconUrl || null
+      } : { points: 0, rankName: 'Novato', iconUrl: null }
     });
   } catch (error) {
     console.error('🔴 [GET DASHBOARD METRICS] Error:', error.message);

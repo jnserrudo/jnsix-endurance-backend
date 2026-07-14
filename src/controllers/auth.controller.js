@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const stravaService = require('../services/strava.service');
 const emailService = require('../services/email.service');
+const pushService = require('../services/push.service');
 const prisma = require('../lib/prisma');
 
 const generateToken = (userId, email, role) => {
@@ -47,12 +48,6 @@ const register = async (req, res) => {
         username: username || null,
         password: hashedPassword,
         role: 'ATHLETE'
-      },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        createdAt: true
       }
     });
     console.log('✅ [REGISTER] Usuario creado exitosamente:', user.id);
@@ -78,7 +73,21 @@ const register = async (req, res) => {
     const token = generateToken(user.id, user.email, user.role);
 
     res.status(201).json({
-      user,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        emailVerified: user.emailVerified,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        avatarUrl: user.avatarUrl,
+        coverUrl: user.coverUrl,
+        profileVisibility: user.profileVisibility,
+        statsVisible: user.statsVisible,
+        activitiesVisible: user.activitiesVisible,
+        createdAt: user.createdAt
+      },
       token,
       message: 'Registration successful. Please check your email to verify your account.'
     });
@@ -107,6 +116,10 @@ const login = async (req, res) => {
       return res.status(401).json({ error: 'Tus credenciales son incorrectas. Verifica tu usuario/correo y contraseña.' });
     }
 
+    if (!user.isActive || user.deletedAt) {
+      return res.status(403).json({ error: 'Tu cuenta ha sido deshabilitada. Contactá a soporte si creés que es un error.' });
+    }
+
     const isValidPassword = await bcrypt.compare(password, user.password);
 
     if (!isValidPassword) {
@@ -120,8 +133,28 @@ const login = async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
+        username: user.username,
         role: user.role,
-        stravaId: user.stravaId
+        stravaId: user.stravaId,
+        emailVerified: user.emailVerified,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        avatarUrl: user.avatarUrl,
+        coverUrl: user.coverUrl,
+        bio: user.bio,
+        birthDate: user.birthDate,
+        gender: user.gender,
+        heightCm: user.heightCm,
+        weightKg: user.weightKg,
+        primarySport: user.primarySport,
+        experienceLevel: user.experienceLevel,
+        phone: user.phone,
+        city: user.city,
+        country: user.country,
+        instagramUrl: user.instagramUrl,
+        profileVisibility: user.profileVisibility,
+        statsVisible: user.statsVisible,
+        activitiesVisible: user.activitiesVisible
       },
       token
     });
@@ -250,8 +283,28 @@ const getCurrentUser = async (req, res) => {
       select: {
         id: true,
         email: true,
+        username: true,
         role: true,
         stravaId: true,
+        emailVerified: true,
+        firstName: true,
+        lastName: true,
+        avatarUrl: true,
+        coverUrl: true,
+        bio: true,
+        birthDate: true,
+        gender: true,
+        heightCm: true,
+        weightKg: true,
+        primarySport: true,
+        experienceLevel: true,
+        phone: true,
+        city: true,
+        country: true,
+        instagramUrl: true,
+        profileVisibility: true,
+        statsVisible: true,
+        activitiesVisible: true,
         createdAt: true
       }
     });
@@ -382,6 +435,30 @@ const resendVerification = async (req, res) => {
   }
 };
 
+const registerPushToken = async (req, res) => {
+  try {
+    const { token, device } = req.body;
+    if (!token) return res.status(400).json({ error: 'Push token is required' });
+
+    await pushService.registerPushToken(req.user.id, token, device);
+    res.json({ message: 'Push token registered' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const removePushToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Push token is required' });
+
+    await pushService.removePushToken(token);
+    res.json({ message: 'Push token removed' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const unsubscribe = async (req, res) => {
   try {
     const { token } = req.body;
@@ -418,6 +495,8 @@ module.exports = {
   disconnectStrava,
   verifyEmail,
   resendVerification,
-  unsubscribe
+  unsubscribe,
+  registerPushToken,
+  removePushToken
 };
 

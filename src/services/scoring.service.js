@@ -117,10 +117,47 @@ const batchScoreActivities = async (userId) => {
   await recalculateUserScore(userId);
 };
 
+/**
+ * Calcula puntos para una sesion de entrenamiento de fuerza en base a
+ * numero de series completadas y volumen (reps * peso).
+ */
+const calculateWorkoutPoints = (sets) => {
+  const setPoints = sets.length * 5;
+  const volumePoints = sets.reduce((sum, s) => sum + ((s.reps || 0) * (s.weightKg || 1) * 0.05), 0);
+  return Math.max(0, Math.round(setPoints + volumePoints));
+};
+
+/**
+ * Asigna puntos por una sesion de entrenamiento de fuerza completada.
+ * Se llama al marcar una WorkoutSession como completada.
+ */
+const awardWorkoutPoints = async (sessionId) => {
+  const session = await prisma.workoutSession.findUnique({
+    where: { id: sessionId },
+    include: { sets: true }
+  });
+
+  if (!session || session.sets.length === 0) return;
+
+  const points = calculateWorkoutPoints(session.sets);
+
+  await prisma.scoreEvent.create({
+    data: {
+      userId: session.userId,
+      points,
+      reason: `Workout session completed: ${session.name}`
+    }
+  });
+
+  await recalculateUserScore(session.userId);
+};
+
 module.exports = {
   calculateActivityPoints,
   awardActivityPoints,
   awardActivityPointsIfNotScored,
   batchScoreActivities,
-  recalculateUserScore
+  recalculateUserScore,
+  calculateWorkoutPoints,
+  awardWorkoutPoints
 };

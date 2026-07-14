@@ -73,9 +73,34 @@ const approvePayment = async (req, res) => {
       return res.status(404).json({ error: 'Transacción no encontrada o ya procesada' });
     }
 
+    const plan = await prisma.plan.findUnique({ where: { name: transaction.planName } });
+    if (!plan) {
+      return res.status(400).json({ error: `No existe un plan llamado "${transaction.planName}"` });
+    }
+
     const updatedTx = await prisma.transaction.update({
       where: { id },
       data: { status: 'COMPLETED' }
+    });
+
+    // Desactivar suscripciones activas previas y crear la nueva
+    await prisma.subscription.updateMany({
+      where: { userId: transaction.userId, status: 'ACTIVE', isActive: true },
+      data: { status: 'CANCELED', isActive: false }
+    });
+
+    const endDate = plan.interval === 'LIFETIME'
+      ? null
+      : new Date(Date.now() + (plan.interval === 'YEARLY' ? 365 : 30) * 24 * 60 * 60 * 1000);
+
+    await prisma.subscription.create({
+      data: {
+        userId: transaction.userId,
+        planId: plan.id,
+        status: 'ACTIVE',
+        isActive: true,
+        endDate
+      }
     });
 
     await prisma.user.update({

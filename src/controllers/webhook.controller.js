@@ -14,11 +14,16 @@ const verifyStravaWebhook = async (req, res) => {
   
   if (mode === 'subscribe' && verifyToken === STRAVA_VERIFY_TOKEN) {
     console.log('✅ [STRAVA WEBHOOK] Verificación exitosa');
-    res.status(200).send(challenge);
-  } else {
-    console.error('🔴 [STRAVA WEBHOOK] Verificación fallida');
-    res.status(403).json({ error: 'Verification failed' });
+    return res.status(200).send(challenge);
   }
+
+  if (!mode && !verifyToken) {
+    // Ping sin parámetros de verificación (ej. health check de Strava) - responder 200
+    return res.status(200).json({ status: 'ok' });
+  }
+
+  console.error('🔴 [STRAVA WEBHOOK] Verificación fallida');
+  return res.status(403).json({ error: 'Verification failed' });
 };
 
 const handleStravaWebhook = async (req, res) => {

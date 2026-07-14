@@ -58,9 +58,16 @@ const getUserDetails = async (req, res) => {
   }
 };
 
+const VALID_ROLES = ['ADMIN', 'ATHLETE'];
+
 const editUser = async (req, res) => {
   try {
     const { isActive, role } = req.body;
+
+    if (role !== undefined && !VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
+    }
+
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { isActive, role }

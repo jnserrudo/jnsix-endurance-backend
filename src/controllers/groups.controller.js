@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const { notify } = require('../services/notifications.service');
+const storage = require('../services/storage.service');
 
 const listGroups = async (req, res) => {
   try {
@@ -16,12 +17,19 @@ const listGroups = async (req, res) => {
       },
       include: {
         _count: { select: { members: true } },
-        owner: { select: { id: true, email: true } }
+        owner: { select: { id: true, email: true } },
+        members: {
+          where: { userId },
+          select: { role: true }
+        }
       },
       orderBy: { createdAt: 'desc' }
     });
 
-    res.json(groups);
+    res.json(groups.map((group) => ({
+      ...group,
+      myRole: group.members[0]?.role || null
+    })));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -141,6 +149,13 @@ const joinGroup = async (req, res) => {
       return res.status(404).json({ error: 'Group not found' });
     }
 
+    if (group.visibility !== 'PUBLIC') {
+      return res.status(403).json({
+        error: 'Este grupo es privado. Debes solicitar unirte o recibir una invitación.',
+        requiresRequest: true
+      });
+    }
+
     const existing = await prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId: id, userId } }
     });
@@ -159,6 +174,281 @@ const joinGroup = async (req, res) => {
     });
 
     res.status(201).json(member);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const requestToJoinGroup = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    const group = await prisma.group.findFirst({ where: { id, isActive: true, deletedAt: null } });
+    if (!group) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    const existingMember = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } }
+    });
+    if (existingMember) {
+      return res.status(409).json({ error: 'Already a member' });
+    }
+
+    const existingRequest = await prisma.groupJoinRequest.findFirst({
+      where: { groupId: id, userId, status: 'PENDING' }
+    });
+    if (existingRequest) {
+      return res.status(409).json({ error: 'Ya tienes una solicitud pendiente para este grupo' });
+    }
+
+    const request = await prisma.groupJoinRequest.create({
+      data: { groupId: id, userId }
+    });
+
+    const admins = await prisma.groupMember.findMany({
+      where: { groupId: id, role: { in: ['OWNER', 'ADMIN'] } },
+      select: { userId: true }
+    });
+
+    await Promise.all(
+      admins.map((admin) =>
+        notify(admin.userId, 'GROUP_JOIN_REQUEST', {
+          title: 'Nueva solicitud para unirse',
+          body: `${req.user.email} quiere unirse a "${group.name}"`,
+          payload: { groupId: id, requestId: request.id, userId }
+        })
+      )
+    );
+
+    res.status(201).json(request);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const listGroupJoinRequests = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } }
+    });
+    const isAdminUser = req.user.role === 'ADMIN';
+    if (!isAdminUser && (!membership || !['OWNER', 'ADMIN'].includes(membership.role))) {
+      return res.status(403).json({ error: 'Insufficient permissions on this group' });
+    }
+
+    const requests = await prisma.groupJoinRequest.findMany({
+      where: { groupId: id, status: 'PENDING' },
+      include: { user: { select: { id: true, email: true, username: true, firstName: true, lastName: true, avatarUrl: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(requests);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const respondGroupJoinRequest = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id, requestId } = req.params;
+    const { accept } = req.body;
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } }
+    });
+    const isAdminUser = req.user.role === 'ADMIN';
+    if (!isAdminUser && (!membership || !['OWNER', 'ADMIN'].includes(membership.role))) {
+      return res.status(403).json({ error: 'Insufficient permissions on this group' });
+    }
+
+    const request = await prisma.groupJoinRequest.findUnique({ where: { id: requestId } });
+    if (!request || request.groupId !== id || request.status !== 'PENDING') {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+
+    const updated = await prisma.groupJoinRequest.update({
+      where: { id: requestId },
+      data: { status: accept ? 'ACCEPTED' : 'DECLINED' }
+    });
+
+    if (accept) {
+      await prisma.groupMember.upsert({
+        where: { groupId_userId: { groupId: id, userId: request.userId } },
+        create: { groupId: id, userId: request.userId, role: 'MEMBER' },
+        update: {}
+      });
+    }
+
+    const group = await prisma.group.findUnique({ where: { id } });
+    await notify(request.userId, 'GROUP_JOIN_RESPONSE', {
+      title: accept ? 'Solicitud aprobada' : 'Solicitud rechazada',
+      body: accept
+        ? `Tu solicitud para unirte a "${group.name}" fue aprobada`
+        : `Tu solicitud para unirte a "${group.name}" fue rechazada`,
+      payload: { groupId: id }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const inviteToGroup = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const { userId: invitedUserId } = req.body;
+
+    if (!invitedUserId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } }
+    });
+    const isAdminUser = req.user.role === 'ADMIN';
+    if (!isAdminUser && (!membership || !['OWNER', 'ADMIN'].includes(membership.role))) {
+      return res.status(403).json({ error: 'Insufficient permissions on this group' });
+    }
+
+    const group = await prisma.group.findFirst({ where: { id, isActive: true, deletedAt: null } });
+    if (!group) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    const existingMember = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId: invitedUserId } }
+    });
+    if (existingMember) {
+      return res.status(409).json({ error: 'El usuario ya es miembro del grupo' });
+    }
+
+    const existingInvite = await prisma.groupInvitation.findFirst({
+      where: { groupId: id, invitedUserId, status: 'PENDING' }
+    });
+    if (existingInvite) {
+      return res.status(409).json({ error: 'Ya existe una invitación pendiente para este usuario' });
+    }
+
+    const invitation = await prisma.groupInvitation.create({
+      data: { groupId: id, invitedUserId, invitedById: userId }
+    });
+
+    await notify(invitedUserId, 'GROUP_INVITE', {
+      title: 'Invitación a un grupo',
+      body: `${req.user.email} te invitó a unirte a "${group.name}"`,
+      payload: { groupId: id, invitationId: invitation.id }
+    });
+
+    res.status(201).json(invitation);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const listGroupInvitations = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } }
+    });
+    const isAdminUser = req.user.role === 'ADMIN';
+    if (!isAdminUser && (!membership || !['OWNER', 'ADMIN'].includes(membership.role))) {
+      return res.status(403).json({ error: 'Insufficient permissions on this group' });
+    }
+
+    const invitations = await prisma.groupInvitation.findMany({
+      where: { groupId: id, status: 'PENDING' },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(invitations);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const listMyGroupInvitations = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const invitations = await prisma.groupInvitation.findMany({
+      where: { invitedUserId: userId, status: 'PENDING' },
+      include: { group: { select: { id: true, name: true, avatarUrl: true, description: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json(invitations);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const respondGroupInvite = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { invitationId } = req.params;
+    const { accept } = req.body;
+
+    const invitation = await prisma.groupInvitation.findUnique({ where: { id: invitationId } });
+    if (!invitation || invitation.invitedUserId !== userId || invitation.status !== 'PENDING') {
+      return res.status(404).json({ error: 'Invitation not found' });
+    }
+
+    const updated = await prisma.groupInvitation.update({
+      where: { id: invitationId },
+      data: { status: accept ? 'ACCEPTED' : 'DECLINED' }
+    });
+
+    if (accept) {
+      await prisma.groupMember.upsert({
+        where: { groupId_userId: { groupId: invitation.groupId, userId } },
+        create: { groupId: invitation.groupId, userId, role: 'MEMBER' },
+        update: {}
+      });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const uploadGroupAvatar = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ error: 'No se envió ninguna imagen' });
+    }
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } }
+    });
+    const isAdminUser = req.user.role === 'ADMIN';
+    if (!isAdminUser && (!membership || !['OWNER', 'ADMIN'].includes(membership.role))) {
+      return res.status(403).json({ error: 'Insufficient permissions on this group' });
+    }
+
+    const uploadResult = await storage.uploadFile(file, `groups/${id}`);
+
+    const group = await prisma.group.update({
+      where: { id },
+      data: { avatarUrl: uploadResult.url }
+    });
+
+    res.json(group);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -211,6 +501,14 @@ module.exports = {
   updateGroup,
   disableGroup,
   joinGroup,
+  requestToJoinGroup,
+  listGroupJoinRequests,
+  respondGroupJoinRequest,
+  inviteToGroup,
+  listGroupInvitations,
+  listMyGroupInvitations,
+  respondGroupInvite,
+  uploadGroupAvatar,
   leaveGroup,
   createSubgroup
 };

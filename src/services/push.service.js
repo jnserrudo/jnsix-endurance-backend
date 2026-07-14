@@ -3,25 +3,21 @@ const prisma = require('../lib/prisma');
 
 const expo = new Expo({ accessToken: process.env.EXPO_ACCESS_TOKEN });
 
-const registerPushToken = async (userId, token, deviceId, platform) => {
+const registerPushToken = async (userId, token, device) => {
   if (!Expo.isExpoPushToken(token)) {
     throw new Error(`Push token ${token} is not a valid Expo push token`);
   }
 
-  return prisma.pushToken.upsert({
-    where: {
-      userId_deviceId: { userId, deviceId }
-    },
-    update: { token, platform, lastUsedAt: new Date() },
-    create: { userId, deviceId, token, platform }
+  return prisma.expoPushToken.upsert({
+    where: { token },
+    update: { userId, device },
+    create: { userId, token, device }
   });
 };
 
-const removePushToken = async (userId, deviceId) => {
-  return prisma.pushToken.delete({
-    where: {
-      userId_deviceId: { userId, deviceId }
-    }
+const removePushToken = async (token) => {
+  return prisma.expoPushToken.deleteMany({
+    where: { token }
   });
 };
 
@@ -43,7 +39,7 @@ const sendPushNotificationsChunked = async (messages) => {
 };
 
 const sendPushToUser = async (userId, title, body, data = {}) => {
-  const tokens = await prisma.pushToken.findMany({
+  const tokens = await prisma.expoPushToken.findMany({
     where: { userId }
   });
 

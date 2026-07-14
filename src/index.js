@@ -17,6 +17,9 @@ const challengesRoutes = require('./routes/challenges.routes');
 const chatRoutes = require('./routes/chat.routes');
 const adminRoutes = require('./routes/admin.routes');
 const paymentsRoutes = require('./routes/payments.routes');
+const exercisesRoutes = require('./routes/exercises.routes');
+const workoutsRoutes = require('./routes/workouts.routes');
+const usersRoutes = require('./routes/users.routes');
 const authController = require('./controllers/auth.controller');
 const { auditContextMiddleware } = require('./services/audit.service');
 const { initSocket } = require('./services/socket.service');
@@ -50,6 +53,7 @@ app.use(auditContextMiddleware);
 
 const path = require('path');
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/exercises-media', express.static(path.join(__dirname, '../public/exercises')));
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'JNSIX Endurance Analytics API' });
@@ -70,6 +74,9 @@ app.use('/api/challenges', challengesRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/payments', paymentsRoutes);
+app.use('/api/exercises', exercisesRoutes);
+app.use('/api/workouts', workoutsRoutes);
+app.use('/api/users', usersRoutes);
 
 
 // Ruta especial para callback de Strava (sin /api para compatibilidad con Strava)
