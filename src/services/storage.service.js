@@ -1,39 +1,36 @@
-const { createClient } = require('@supabase/supabase-js');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
+const fs = require('fs');
 
 class StorageService {
   constructor() {
-    this.supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
-    this.bucket = process.env.SUPABASE_STORAGE_BUCKET || 'activity-files';
+    this.uploadDir = path.join(__dirname, '../../uploads');
+    // Asegurarse de que el directorio raíz de uploads existe
+    if (!fs.existsSync(this.uploadDir)) {
+      fs.mkdirSync(this.uploadDir, { recursive: true });
+    }
   }
 
   async uploadFile(file, userId) {
     try {
       const fileExt = path.extname(file.originalname);
-      const fileName = `${userId}/${uuidv4()}${fileExt}`;
-
-      const { data, error } = await this.supabase.storage
-        .from(this.bucket)
-        .upload(fileName, file.buffer, {
-          contentType: file.mimetype,
-          upsert: false
-        });
-
-      if (error) {
-        throw error;
+      const uniqueName = `${uuidv4()}${fileExt}`;
+      const relativePath = `${userId}/${uniqueName}`;
+      
+      const userDir = path.join(this.uploadDir, userId.toString());
+      if (!fs.existsSync(userDir)) {
+        await fs.promises.mkdir(userDir, { recursive: true });
       }
 
-      const { data: urlData } = this.supabase.storage
-        .from(this.bucket)
-        .getPublicUrl(fileName);
+      const absolutePath = path.join(userDir, uniqueName);
+      await fs.promises.writeFile(absolutePath, file.buffer);
+
+      const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+      const publicUrl = `${backendUrl}/uploads/${relativePath}`;
 
       return {
-        path: fileName,
-        url: urlData.publicUrl
+        path: relativePath,
+        url: publicUrl
       };
     } catch (error) {
       throw new Error(`File upload failed: ${error.message}`);
@@ -42,14 +39,10 @@ class StorageService {
 
   async deleteFile(filePath) {
     try {
-      const { error } = await this.supabase.storage
-        .from(this.bucket)
-        .remove([filePath]);
-
-      if (error) {
-        throw error;
+      const absolutePath = path.join(this.uploadDir, filePath);
+      if (fs.existsSync(absolutePath)) {
+        await fs.promises.unlink(absolutePath);
       }
-
       return true;
     } catch (error) {
       throw new Error(`File deletion failed: ${error.message}`);
@@ -58,11 +51,8 @@ class StorageService {
 
   async getFileUrl(filePath) {
     try {
-      const { data } = this.supabase.storage
-        .from(this.bucket)
-        .getPublicUrl(filePath);
-
-      return data.publicUrl;
+      const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+      return `${backendUrl}/uploads/${filePath}`;
     } catch (error) {
       throw new Error(`Failed to get file URL: ${error.message}`);
     }
@@ -70,15 +60,9 @@ class StorageService {
 
   async downloadFile(filePath) {
     try {
-      const { data, error } = await this.supabase.storage
-        .from(this.bucket)
-        .download(filePath);
-
-      if (error) {
-        throw error;
-      }
-
-      return data;
+      const absolutePath = path.join(this.uploadDir, filePath);
+      const buffer = await fs.promises.readFile(absolutePath);
+      return buffer;
     } catch (error) {
       throw new Error(`File download failed: ${error.message}`);
     }

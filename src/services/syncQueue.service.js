@@ -38,8 +38,9 @@ class SyncQueueService extends EventEmitter {
       this.emit('job:updated', job);
 
       const stravaService = require('./strava.service');
-      const { PrismaClient } = require('@prisma/client');
-      const prisma = new PrismaClient();
+      const prisma = require('../lib/prisma');
+      const scoringService = require('./scoring.service');
+      const challengesService = require('./challenges.service');
 
       let page = 1;
       let allActivities = [];
@@ -84,10 +85,14 @@ class SyncQueueService extends EventEmitter {
         // Upsert para evitar duplicados
         for (const data of activityData) {
           const { id, userId, stravaId, ...updateData } = data;
-          await prisma.activity.upsert({
+          const upserted = await prisma.activity.upsert({
             where: { stravaId: data.stravaId },
             update: updateData,
             create: data
+          });
+
+          scoringService.awardActivityPointsIfNotScored(upserted.id).catch((err) => {
+            console.error('[Scoring] Failed to award points for synced activity:', err.message);
           });
         }
 
@@ -112,6 +117,14 @@ class SyncQueueService extends EventEmitter {
       await prisma.user.update({
         where: { id: job.userId },
         data: { lastSyncDate: new Date() }
+      });
+
+      scoringService.recalculateUserScore(job.userId).catch((err) => {
+        console.error('[Scoring] Failed to recalculate user score after sync:', err.message);
+      });
+
+      challengesService.updateChallengeProgress(job.userId).catch((err) => {
+        console.error('[Challenges] Failed to update progress after sync queue:', err.message);
       });
 
       job.status = 'completed';

@@ -1,9 +1,9 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
+const crypto = require('crypto');
 const stravaService = require('../services/strava.service');
-
-const prisma = new PrismaClient();
+const emailService = require('../services/email.service');
+const prisma = require('../lib/prisma');
 
 const generateToken = (userId, email, role) => {
   return jwt.sign(
@@ -47,11 +47,30 @@ const register = async (req, res) => {
     });
     console.log('✅ [REGISTER] Usuario creado exitosamente:', user.id);
 
+    // Create 6-digit OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    await prisma.emailVerification.create({
+      data: {
+        userId: user.id,
+        token: otpCode,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
+      }
+    });
+
+    // Send OTP email
+    try {
+      const nombre = user.email.split('@')[0];
+      await emailService.sendVerificationOTP(user.email, otpCode, nombre);
+    } catch (mailErr) {
+      console.error('🔴 [REGISTER] Error enviando email de verificación:', mailErr.message);
+    }
+
     const token = generateToken(user.id, user.email, user.role);
 
     res.status(201).json({
       user,
-      token
+      token,
+      message: 'Registration successful. Please check your email to verify your account.'
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -267,6 +286,115 @@ const disconnectStrava = async (req, res) => {
   }
 };
 
+const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token is required' });
+
+    const emailVerification = await prisma.emailVerification.findUnique({
+      where: { token }
+    });
+
+    if (!emailVerification) {
+      return res.status(400).json({ error: 'Invalid or expired verification token' });
+    }
+
+    if (emailVerification.verified) {
+      return res.status(400).json({ error: 'Email is already verified' });
+    }
+
+    if (new Date() > emailVerification.expiresAt) {
+      return res.status(400).json({ error: 'Verification token has expired' });
+    }
+
+    await prisma.$transaction([
+      prisma.emailVerification.update({
+        where: { id: emailVerification.id },
+        data: { verified: true }
+      }),
+      prisma.user.update({
+        where: { id: emailVerification.userId },
+        data: { emailVerified: true }
+      })
+    ]);
+
+    const user = await prisma.user.findUnique({ where: { id: emailVerification.userId } });
+    if (user) {
+      try {
+        const nombre = user.email.split('@')[0];
+        await emailService.sendWelcomeEmail(user.email, nombre);
+      } catch (mailErr) {
+        console.error('🔴 [VERIFY] Error enviando email de bienvenida:', mailErr.message);
+      }
+    }
+
+    res.json({ message: 'Email verified successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const resendVerification = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Invalidate previous tokens
+    await prisma.emailVerification.deleteMany({
+      where: { userId: user.id, verified: false }
+    });
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    await prisma.emailVerification.create({
+      data: {
+        userId: user.id,
+        token: otpCode,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000)
+      }
+    });
+
+    try {
+      const nombre = user.email.split('@')[0];
+      await emailService.sendVerificationOTP(user.email, otpCode, nombre);
+    } catch (mailErr) {
+      console.error('🔴 [RESEND_VERIFICATION] Error enviando email:', mailErr.message);
+    }
+
+    res.json({ message: 'Verification OTP sent' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const unsubscribe = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token is required' });
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.purpose !== 'unsubscribe') {
+      return res.status(400).json({ error: 'Invalid token purpose' });
+    }
+
+    const { email } = decoded;
+
+    await prisma.user.update({
+      where: { email },
+      data: { marketingEnabled: false }
+    });
+
+    res.json({ message: 'Successfully unsubscribed from marketing emails' });
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(400).json({ error: 'Unsubscribe token has expired' });
+    }
+    return res.status(400).json({ error: 'Invalid unsubscribe token' });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -274,6 +402,9 @@ module.exports = {
   stravaCallback,
   refreshToken,
   getCurrentUser,
-  disconnectStrava
+  disconnectStrava,
+  verifyEmail,
+  resendVerification,
+  unsubscribe
 };
 

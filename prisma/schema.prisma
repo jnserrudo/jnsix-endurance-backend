@@ -6,28 +6,56 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "mysql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
-  id                String              @id @default(uuid())
-  email             String              @unique
-  password          String?
-  role              Role                @default(ATHLETE)
-  stravaId          String?             @unique @map("strava_id")
-  stravaAccessToken String?             @map("strava_access_token")
-  stravaRefreshToken String?            @map("strava_refresh_token")
-  stravaTokenExpiry DateTime?           @map("strava_token_expiry")
-  lastSyncDate      DateTime?           @map("last_sync_date")
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
-  activities        Activity[]
-  comparisons       ActivityComparison[]
-  aiAnalyses        AIAnalysis[]
-  competitionGoals  CompetitionGoal[]
+  id                 String               @id @default(uuid())
+  email              String               @unique
+  password           String?
+  role               Role                 @default(ATHLETE)
+  stravaId           String?              @unique @map("strava_id")
+  stravaAccessToken  String?              @map("strava_access_token")
+  stravaRefreshToken String?              @map("strava_refresh_token")
+  stravaTokenExpiry  DateTime?            @map("strava_token_expiry")
+  lastSyncDate       DateTime?            @map("last_sync_date")
+  isActive           Boolean              @default(true) @map("is_active")
+  marketingEnabled   Boolean              @default(true) @map("marketing_enabled")
+  deletedAt          DateTime?            @map("deleted_at")
+  emailVerified      Boolean              @default(false) @map("email_verified")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+  activities         Activity[]
+  comparisons        ActivityComparison[]
+  aiAnalyses         AIAnalysis[]
+  competitionGoals   CompetitionGoal[]
 
+  userRoles             UserRole[]
+  friendshipsSent       Friendship[]             @relation("FriendshipUser")
+  friendshipsReceived   Friendship[]             @relation("FriendshipFriend")
+  ownedGroups           Group[]                  @relation("GroupOwner")
+  groupMemberships      GroupMember[]
+  communityMemberships  CommunityMember[]
+  scoreEvents           ScoreEvent[]
+  userScore             UserScore?
+  posts                 Post[]
+  comments              Comment[]
+  reactions             Reaction[]
+  createdChallenges     Challenge[]              @relation("ChallengeCreator")
+  challengeParticipants ChallengeParticipant[]
+  chatMessages          ChatMessage[]
+  chatRoomMembers       ChatRoomMember[]
+  notifications         Notification[]
+  notificationPrefs     NotificationPreference[]
+  pushTokens            ExpoPushToken[]
+  auditLogs             AuditLog[]
+  subscriptions         Subscription[]
+  discountRedemptions   DiscountRedemption[]
+  emailVerifications    EmailVerification[]
+  transactions          Transaction[]
+
+  subscriptionTier      String               @default("FREE") @map("subscription_tier")
 
   @@map("users")
 }
@@ -50,6 +78,9 @@ model Activity {
   fileUrl           String?              @map("file_url")
   fileType          FileType?            @map("file_type")
   rawData           Json?                @map("raw_data")
+  description       String?              @db.Text
+  privateNotes      String?              @map("private_notes") @db.Text
+  visibility        Visibility           @default(PRIVATE)
   createdAt         DateTime             @default(now()) @map("created_at")
   updatedAt         DateTime             @updatedAt @map("updated_at")
   user              User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -58,8 +89,11 @@ model Activity {
   aiAnalyses        AIAnalysis[]
   competitionGoalId String?              @map("competition_goal_id")
   competitionGoal   CompetitionGoal?     @relation("RaceSimulations", fields: [competitionGoalId], references: [id], onDelete: SetNull)
+  photos            ActivityPhoto[]
+  posts             Post[]
+  comments          Comment[]
+  scoreEvents       ScoreEvent[]
 
-  
   @@index([userId])
   @@index([startDate])
   @@index([shareToken])
@@ -67,17 +101,17 @@ model Activity {
 }
 
 model ActivityLap {
-  id             String   @id @default(uuid())
-  activityId     String   @map("activity_id")
-  splitNum       Int      @map("split_num")
-  distance       Float
-  elevationGain  Float    @map("elevation_gain")
-  averagePace    Float    @map("average_pace")
-  averageHr      Int?     @map("average_hr")
-  maxHr          Int?     @map("max_hr")
-  createdAt      DateTime @default(now()) @map("created_at")
-  activity       Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
-  
+  id            String   @id @default(uuid())
+  activityId    String   @map("activity_id")
+  splitNum      Int      @map("split_num")
+  distance      Float
+  elevationGain Float    @map("elevation_gain")
+  averagePace   Float    @map("average_pace")
+  averageHr     Int?     @map("average_hr")
+  maxHr         Int?     @map("max_hr")
+  createdAt     DateTime @default(now()) @map("created_at")
+  activity      Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
   @@index([activityId])
   @@map("activity_laps")
 }
@@ -91,7 +125,7 @@ model ActivityComparison {
   updatedAt   DateTime             @updatedAt @map("updated_at")
   user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   activities  ComparisonActivity[]
-  
+
   @@index([userId])
   @@map("activity_comparisons")
 }
@@ -105,7 +139,7 @@ model ComparisonActivity {
   createdAt    DateTime           @default(now()) @map("created_at")
   comparison   ActivityComparison @relation(fields: [comparisonId], references: [id], onDelete: Cascade)
   activity     Activity           @relation(fields: [activityId], references: [id], onDelete: Cascade)
-  
+
   @@unique([comparisonId, activityId])
   @@index([comparisonId])
   @@index([activityId])
@@ -113,18 +147,18 @@ model ComparisonActivity {
 }
 
 model AIAnalysis {
-  id          String        @id @default(uuid())
-  userId      String        @map("user_id")
-  activityId  String?       @map("activity_id")
-  type        AIAnalysisType
-  prompt      String        @db.Text
-  response    String        @db.Text
-  model       String
-  tokensUsed  Int           @map("tokens_used")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  activity    Activity?     @relation(fields: [activityId], references: [id], onDelete: Cascade)
-  
+  id         String         @id @default(uuid())
+  userId     String         @map("user_id")
+  activityId String?        @map("activity_id")
+  type       AIAnalysisType
+  prompt     String         @db.Text
+  response   String         @db.Text
+  model      String
+  tokensUsed Int            @map("tokens_used")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity   Activity?      @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
   @@index([userId])
   @@index([activityId])
   @@index([type])
@@ -132,25 +166,552 @@ model AIAnalysis {
 }
 
 model CompetitionGoal {
-  id             String       @id @default(uuid())
-  userId         String       @map("user_id")
-  name           String
-  type           ActivityType
-  distanceKm     Float        @map("distance_km")
-  elevationM     Float        @map("elevation_m")
-  targetDate     DateTime     @map("target_date")
-  targetTime     String?      @map("target_time")
-  terrainType    String?      @map("terrain_type")
-  notes          String?      @db.Text
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  simulations    Activity[]   @relation("RaceSimulations")
+  id          String       @id @default(uuid())
+  userId      String       @map("user_id")
+  name        String
+  type        ActivityType
+  distanceKm  Float        @map("distance_km")
+  elevationM  Float        @map("elevation_m")
+  targetDate  DateTime     @map("target_date")
+  targetTime  String?      @map("target_time")
+  terrainType String?      @map("terrain_type")
+  notes       String?      @db.Text
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  simulations Activity[]   @relation("RaceSimulations")
 
   @@index([userId])
   @@map("competition_goals")
 }
 
+// ============================================================
+// RBAC - Roles y Permisos granulares
+// ============================================================
+
+model RoleDefinition {
+  id          String           @id @default(uuid())
+  name        String           @unique
+  description String?
+  isSystem    Boolean          @default(false) @map("is_system")
+  isActive    Boolean          @default(true) @map("is_active")
+  deletedAt   DateTime?        @map("deleted_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  permissions RolePermission[]
+  userRoles   UserRole[]
+
+  @@map("role_definitions")
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  key         String           @unique
+  description String?
+  module      String
+  createdAt   DateTime         @default(now()) @map("created_at")
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String         @map("role_id")
+  permissionId String         @map("permission_id")
+  role         RoleDefinition @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission     @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId     String         @map("user_id")
+  roleId     String         @map("role_id")
+  assignedAt DateTime       @default(now()) @map("assigned_at")
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       RoleDefinition @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+// ============================================================
+// Feature Flags
+// ============================================================
+
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  isEnabled   Boolean  @default(true) @map("is_enabled")
+  updatedBy   String?  @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("feature_flags")
+}
+
+// ============================================================
+// Auditoría
+// ============================================================
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?  @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================================
+// Social - Amigos, Grupos, Comunidades
+// ============================================================
+
+model Friendship {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  friendId  String           @map("friend_id")
+  status    FriendshipStatus @default(PENDING)
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+  user      User             @relation("FriendshipUser", fields: [userId], references: [id], onDelete: Cascade)
+  friend    User             @relation("FriendshipFriend", fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, friendId])
+  @@index([userId])
+  @@index([friendId])
+  @@map("friendships")
+}
+
+model Group {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  avatarUrl   String?       @map("avatar_url")
+  ownerId     String        @map("owner_id")
+  visibility  Visibility    @default(PUBLIC)
+  isActive    Boolean       @default(true) @map("is_active")
+  deletedAt   DateTime?     @map("deleted_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  owner       User          @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     GroupMember[]
+  subgroups   Subgroup[]
+  challenges  Challenge[]
+
+  @@index([ownerId])
+  @@map("groups")
+}
+
+model GroupMember {
+  groupId  String    @map("group_id")
+  userId   String    @map("user_id")
+  role     GroupRole @default(MEMBER)
+  joinedAt DateTime  @default(now()) @map("joined_at")
+  group    Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, userId])
+  @@map("group_members")
+}
+
+model Subgroup {
+  id          String    @id @default(uuid())
+  groupId     String    @map("group_id")
+  name        String
+  description String?
+  isActive    Boolean   @default(true) @map("is_active")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  group       Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@map("subgroups")
+}
+
+model Community {
+  id          String            @id @default(uuid())
+  name        String
+  description String?
+  region      String?
+  type        CommunityType     @default(TOPIC)
+  isActive    Boolean           @default(true) @map("is_active")
+  deletedAt   DateTime?         @map("deleted_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+  members     CommunityMember[]
+  challenges  Challenge[]
+
+  @@map("communities")
+}
+
+model CommunityMember {
+  communityId String    @map("community_id")
+  userId      String    @map("user_id")
+  role        GroupRole @default(MEMBER)
+  joinedAt    DateTime  @default(now()) @map("joined_at")
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([communityId, userId])
+  @@map("community_members")
+}
+
+// ============================================================
+// Gamificación - Puntajes, Rankings, Rangos, Categorías
+// ============================================================
+
+model ScoreEvent {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  activityId String?   @map("activity_id")
+  points     Int
+  reason     String
+  createdAt  DateTime  @default(now()) @map("created_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity   Activity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("score_events")
+}
+
+model UserScore {
+  userId            String    @id @map("user_id")
+  totalPoints       Int       @default(0) @map("total_points")
+  currentRankId     String?   @map("current_rank_id")
+  currentCategoryId String?   @map("current_category_id")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentRank       Rank?     @relation(fields: [currentRankId], references: [id], onDelete: SetNull)
+  currentCategory   Category? @relation(fields: [currentCategoryId], references: [id], onDelete: SetNull)
+
+  @@map("user_scores")
+}
+
+model Rank {
+  id         String      @id @default(uuid())
+  name       String      @unique
+  minPoints  Int         @map("min_points")
+  maxPoints  Int?        @map("max_points")
+  iconUrl    String?     @map("icon_url")
+  order      Int
+  isActive   Boolean     @default(true) @map("is_active")
+  deletedAt  DateTime?   @map("deleted_at")
+  userScores UserScore[]
+
+  @@map("ranks")
+}
+
+model Category {
+  id         String      @id @default(uuid())
+  name       String      @unique
+  criteria   Json?
+  isActive   Boolean     @default(true) @map("is_active")
+  deletedAt  DateTime?   @map("deleted_at")
+  userScores UserScore[]
+
+  @@map("categories")
+}
+
+// ============================================================
+// Contenido - Fotos, Posts, Comentarios, Reacciones
+// ============================================================
+
+model ActivityPhoto {
+  id         String   @id @default(uuid())
+  activityId String   @map("activity_id")
+  url        String
+  order      Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at")
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([activityId])
+  @@map("activity_photos")
+}
+
+model Post {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  activityId String?   @map("activity_id")
+  content    String    @db.Text
+  isActive   Boolean   @default(true) @map("is_active")
+  deletedAt  DateTime? @map("deleted_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity   Activity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  comments   Comment[]
+
+  @@index([userId])
+  @@map("posts")
+}
+
+model Comment {
+  id         String    @id @default(uuid())
+  postId     String?   @map("post_id")
+  activityId String?   @map("activity_id")
+  userId     String    @map("user_id")
+  content    String    @db.Text
+  isActive   Boolean   @default(true) @map("is_active")
+  deletedAt  DateTime? @map("deleted_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  post       Post?     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  activity   Activity? @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([activityId])
+  @@index([userId])
+  @@map("comments")
+}
+
+model Reaction {
+  id         String         @id @default(uuid())
+  userId     String         @map("user_id")
+  targetType ReactionTarget @map("target_type")
+  targetId   String         @map("target_id")
+  type       ReactionType   @default(LIKE)
+  createdAt  DateTime       @default(now()) @map("created_at")
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, targetType, targetId])
+  @@index([targetType, targetId])
+  @@map("reactions")
+}
+
+// ============================================================
+// Retos / Challenges
+// ============================================================
+
+model Challenge {
+  id           String                 @id @default(uuid())
+  name         String
+  description  String?                @db.Text
+  type         ChallengeScope         @default(GLOBAL)
+  metric       ChallengeMetric
+  targetValue  Float                  @map("target_value")
+  startDate    DateTime               @map("start_date")
+  endDate      DateTime               @map("end_date")
+  createdById  String                 @map("created_by")
+  groupId      String?                @map("group_id")
+  communityId  String?                @map("community_id")
+  isActive     Boolean                @default(true) @map("is_active")
+  deletedAt    DateTime?              @map("deleted_at")
+  createdAt    DateTime               @default(now()) @map("created_at")
+  createdBy    User                   @relation("ChallengeCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  group        Group?                 @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  community    Community?             @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  participants ChallengeParticipant[]
+
+  @@index([groupId])
+  @@index([communityId])
+  @@map("challenges")
+}
+
+model ChallengeParticipant {
+  challengeId     String    @map("challenge_id")
+  userId          String    @map("user_id")
+  currentProgress Float     @default(0) @map("current_progress")
+  completed       Boolean   @default(false)
+  completedAt     DateTime? @map("completed_at")
+  challenge       Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([challengeId, userId])
+  @@map("challenge_participants")
+}
+
+// ============================================================
+// Chat en tiempo real
+// ============================================================
+
+model ChatRoom {
+  id          String           @id @default(uuid())
+  type        ChatRoomType     @default(DIRECT)
+  referenceId String?          @map("reference_id")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  members     ChatRoomMember[]
+  messages    ChatMessage[]
+
+  @@map("chat_rooms")
+}
+
+model ChatRoomMember {
+  roomId     String    @map("room_id")
+  userId     String    @map("user_id")
+  joinedAt   DateTime  @default(now()) @map("joined_at")
+  lastReadAt DateTime? @map("last_read_at")
+  room       ChatRoom  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, userId])
+  @@map("chat_room_members")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  roomId    String   @map("room_id")
+  userId    String   @map("user_id")
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@index([createdAt])
+  @@map("chat_messages")
+}
+
+// ============================================================
+// Notificaciones
+// ============================================================
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  body      String
+  payload   Json?
+  channels  String
+  read      Boolean          @default(false)
+  sentPush  Boolean          @default(false) @map("sent_push")
+  sentEmail Boolean          @default(false) @map("sent_email")
+  createdAt DateTime         @default(now()) @map("created_at")
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  userId       String           @map("user_id")
+  type         NotificationType
+  inAppEnabled Boolean          @default(true) @map("in_app_enabled")
+  pushEnabled  Boolean          @default(true) @map("push_enabled")
+  emailEnabled Boolean          @default(true) @map("email_enabled")
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, type])
+  @@map("notification_preferences")
+}
+
+model ExpoPushToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  device    String?
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("expo_push_tokens")
+}
+
+// ============================================================
+// Verificación de Email
+// ============================================================
+
+model EmailVerification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verifications")
+}
+
+// ============================================================
+// Planes / Monetización (fundación, sin cobro real todavía)
+// ============================================================
+
+model Plan {
+  id            String         @id @default(uuid())
+  name          String         @unique
+  price         Float
+  currency      String         @default("USD")
+  interval      PlanInterval   @default(MONTHLY)
+  isActive      Boolean        @default(true) @map("is_active")
+  deletedAt     DateTime?      @map("deleted_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  features      PlanFeature[]
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model PlanFeature {
+  id         String          @id @default(uuid())
+  planId     String          @map("plan_id")
+  featureKey String          @map("feature_key")
+  limitType  EnforcementType @default(UNLIMITED) @map("limit_type")
+  limitValue Int?            @map("limit_value")
+  plan       Plan            @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, featureKey])
+  @@map("plan_features")
+}
+
+model Subscription {
+  id        String             @id @default(uuid())
+  userId    String             @map("user_id")
+  planId    String             @map("plan_id")
+  status    SubscriptionStatus @default(ACTIVE)
+  startDate DateTime           @default(now()) @map("start_date")
+  endDate   DateTime?          @map("end_date")
+  isActive  Boolean            @default(true) @map("is_active")
+  deletedAt DateTime?          @map("deleted_at")
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan      Plan               @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("subscriptions")
+}
+
+model DiscountCode {
+  id           String               @id @default(uuid())
+  code         String               @unique
+  discountType DiscountType         @map("discount_type")
+  value        Float
+  maxUses      Int?                 @map("max_uses")
+  usedCount    Int                  @default(0) @map("used_count")
+  expiresAt    DateTime?            @map("expires_at")
+  isActive     Boolean              @default(true) @map("is_active")
+  deletedAt    DateTime?            @map("deleted_at")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  redemptions  DiscountRedemption[]
+
+  @@map("discount_codes")
+}
+
+model DiscountRedemption {
+  id             String       @id @default(uuid())
+  discountCodeId String       @map("discount_code_id")
+  userId         String       @map("user_id")
+  redeemedAt     DateTime     @default(now()) @map("redeemed_at")
+  discountCode   DiscountCode @relation(fields: [discountCodeId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("discount_redemptions")
+}
 
 enum Role {
   ADMIN
@@ -185,3 +746,125 @@ enum AIAnalysisType {
   COMPETITION_STRATEGY
 }
 
+enum Visibility {
+  PUBLIC
+  FRIENDS
+  PRIVATE
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+enum GroupRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum CommunityType {
+  REGIONAL
+  TOPIC
+  OFFICIAL
+}
+
+enum ReactionTarget {
+  POST
+  ACTIVITY
+  COMMENT
+}
+
+enum ReactionType {
+  LIKE
+  FIRE
+  CLAP
+}
+
+enum ChallengeScope {
+  GLOBAL
+  COMMUNITY
+  GROUP
+}
+
+enum ChallengeMetric {
+  DISTANCE
+  ELEVATION
+  FREQUENCY
+  TIME
+}
+
+enum ChatRoomType {
+  DIRECT
+  GROUP
+  COMMUNITY
+}
+
+enum NotificationType {
+  FRIEND_REQUEST
+  RANK_UP
+  CHALLENGE_COMPLETE
+  COMMENT
+  CHAT_MESSAGE
+  PLAN_CHANGED
+  REACTION
+  GROUP_INVITE
+  SYSTEM
+}
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+  LIFETIME
+}
+
+enum EnforcementType {
+  HARD_BLOCK
+  SOFT_BLOCK
+  UNLIMITED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  EXPIRED
+}
+
+enum DiscountType {
+  PERCENT
+  FIXED
+}
+
+enum PaymentMethod {
+  IN_APP_APPLE
+  IN_APP_GOOGLE
+  STRIPE
+  MERCADO_PAGO
+  MANUAL_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REJECTED 
+}
+
+model Transaction {
+  id              String        @id @default(uuid())
+  userId          String        @map("user_id")
+  planName        String        @map("plan_name")
+  amount          Float
+  currency        String        @default("USD")
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  gatewayTxId     String?       @map("gateway_tx_id")
+  receiptUrl      String?       @map("receipt_url")
+  rejectionReason String?       @map("rejection_reason")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user            User          @relation(fields: [userId], references: [id])
+  @@map("transactions")
+}

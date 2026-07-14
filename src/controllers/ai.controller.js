@@ -1,7 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
 const aiService = require('../services/ai.service');
-
-const prisma = new PrismaClient();
+const prisma = require('../lib/prisma');
 
 const analyzeActivity = async (req, res) => {
   try {

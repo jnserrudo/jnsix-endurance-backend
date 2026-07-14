@@ -8,9 +8,22 @@ const comparisonsRoutes = require('./routes/comparisons.routes');
 const aiRoutes = require('./routes/ai.routes');
 const webhookRoutes = require('./routes/webhook.routes');
 const competitionsRoutes = require('./routes/competitions.routes');
+const friendsRoutes = require('./routes/friends.routes');
+const groupsRoutes = require('./routes/groups.routes');
+const communitiesRoutes = require('./routes/communities.routes');
+const rankingsRoutes = require('./routes/rankings.routes');
+const feedRoutes = require('./routes/feed.routes');
+const challengesRoutes = require('./routes/challenges.routes');
+const chatRoutes = require('./routes/chat.routes');
+const adminRoutes = require('./routes/admin.routes');
+const paymentsRoutes = require('./routes/payments.routes');
 const authController = require('./controllers/auth.controller');
+const { auditContextMiddleware } = require('./services/audit.service');
+const { initSocket } = require('./services/socket.service');
+const http = require('http');
 
 const app = express();
+const httpServer = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({
@@ -33,6 +46,10 @@ app.use(cors({
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(auditContextMiddleware);
+
+const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'JNSIX Endurance Analytics API' });
@@ -44,6 +61,15 @@ app.use('/api/comparisons', comparisonsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/webhook', webhookRoutes);
 app.use('/api/competitions', competitionsRoutes);
+app.use('/api/friends', friendsRoutes);
+app.use('/api/groups', groupsRoutes);
+app.use('/api/communities', communitiesRoutes);
+app.use('/api/rankings', rankingsRoutes);
+app.use('/api/feed', feedRoutes);
+app.use('/api/challenges', challengesRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/payments', paymentsRoutes);
 
 
 // Ruta especial para callback de Strava (sin /api para compatibilidad con Strava)
@@ -53,7 +79,9 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-app.listen(PORT, () => {
+initSocket(httpServer);
+
+httpServer.listen(PORT, () => {
   console.log(`JNSIX Endurance Analytics API running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
