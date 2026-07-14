@@ -16,18 +16,27 @@ const generateToken = (userId, email, role) => {
 const register = async (req, res) => {
   try {
     console.log('🟢 [REGISTER] Intento de registro:', req.body.email);
-    const { email, password } = req.body;
+    const { email, password, username } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const existingUser = await prisma.user.findUnique({
-      where: { email }
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email },
+          ...(username ? [{ username }] : [])
+        ]
+      }
     });
 
     if (existingUser) {
-      return res.status(409).json({ error: 'User already exists' });
+      if (existingUser.email === email) {
+        return res.status(409).json({ error: 'User already exists with this email' });
+      } else {
+        return res.status(409).json({ error: 'Username is already taken' });
+      }
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -35,6 +44,7 @@ const register = async (req, res) => {
     const user = await prisma.user.create({
       data: {
         email,
+        username: username || null,
         password: hashedPassword,
         role: 'ATHLETE'
       },
@@ -80,14 +90,17 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     console.log('🟢 [LOGIN] Intento de login:', req.body.email);
-    const { email, password } = req.body;
+    const { email, password } = req.body; // email field may contain username or email
+    const identifier = email;
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    if (!identifier || !password) {
+      return res.status(400).json({ error: 'Email/Username and password are required' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email }
+    const isEmail = identifier.includes('@');
+
+    const user = await prisma.user.findFirst({
+      where: isEmail ? { email: identifier } : { username: identifier }
     });
 
     if (!user || !user.password) {
