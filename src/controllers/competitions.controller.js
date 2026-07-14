@@ -40,6 +40,12 @@ const createCompetition = async (req, res) => {
 
     console.log('🟢 [CREATE COMPETITION] Nuevo objetivo:', { name, type, distanceKm });
 
+    // Validate targetDate format
+    const parsedDate = new Date(targetDate);
+    if (isNaN(parsedDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD (e.g. 2025-09-20).' });
+    }
+
     const newComp = await prisma.competitionGoal.create({
       data: {
         userId,
@@ -47,7 +53,7 @@ const createCompetition = async (req, res) => {
         type,
         distanceKm: parseFloat(distanceKm),
         elevationM: elevationM ? parseFloat(elevationM) : 0,
-        targetDate: new Date(targetDate),
+        targetDate: parsedDate,
         targetTime: targetTime || null,
         terrainType: terrainType || null,
         notes: notes || null
@@ -78,6 +84,15 @@ const updateCompetition = async (req, res) => {
       return res.status(404).json({ error: 'Competition goal not found.' });
     }
 
+    // Validate targetDate if provided
+    let parsedTargetDate = comp.targetDate;
+    if (targetDate !== undefined) {
+      parsedTargetDate = new Date(targetDate);
+      if (isNaN(parsedTargetDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD (e.g. 2025-09-20).' });
+      }
+    }
+
     const updatedComp = await prisma.competitionGoal.update({
       where: { id },
       data: {
@@ -85,7 +100,7 @@ const updateCompetition = async (req, res) => {
         type: type !== undefined ? type : comp.type,
         distanceKm: distanceKm !== undefined ? parseFloat(distanceKm) : comp.distanceKm,
         elevationM: elevationM !== undefined ? parseFloat(elevationM) : comp.elevationM,
-        targetDate: targetDate !== undefined ? new Date(targetDate) : comp.targetDate,
+        targetDate: parsedTargetDate,
         targetTime: targetTime !== undefined ? targetTime : comp.targetTime,
         terrainType: terrainType !== undefined ? terrainType : comp.terrainType,
         notes: notes !== undefined ? notes : comp.notes

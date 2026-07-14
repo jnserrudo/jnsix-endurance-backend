@@ -30,11 +30,10 @@ const requestManualPayment = async (req, res) => {
     // Notificar a todos los admins
     const admins = await prisma.user.findMany({ where: { role: 'ADMIN' } });
     for (const admin of admins) {
-      await notify({
-        userId: admin.id,
+      await notify(admin.id, 'PAYMENT_REVIEW', {
         title: 'Nuevo Comprobante de Pago',
         body: `El usuario ${req.user.email} subió un comprobante para el plan ${planName}.`,
-        data: { transactionId: transaction.id, type: 'PAYMENT_REVIEW' }
+        payload: { transactionId: transaction.id, type: 'PAYMENT_REVIEW' }
       });
     }
 
@@ -84,11 +83,10 @@ const approvePayment = async (req, res) => {
       data: { subscriptionTier: transaction.planName }
     });
 
-    await notify({
-      userId: transaction.userId,
+    await notify(transaction.userId, 'PAYMENT_APPROVED', {
       title: '¡Pago Aprobado!',
       body: `Tu plan ${transaction.planName} ya está activo. ¡A entrenar!`,
-      data: { type: 'PLAN_CHANGED', plan: transaction.planName }
+      payload: { type: 'PLAN_CHANGED', plan: transaction.planName }
     });
 
     res.json({ message: 'Pago aprobado', transaction: updatedTx });
@@ -118,11 +116,10 @@ const rejectPayment = async (req, res) => {
       data: { status: 'REJECTED', rejectionReason: reason }
     });
 
-    await notify({
-      userId: transaction.userId,
+    await notify(transaction.userId, 'PAYMENT_REJECTED', {
       title: 'Problema con tu Pago',
       body: `Tu comprobante fue rechazado. Motivo: ${reason}`,
-      data: { type: 'PAYMENT_REJECTED' }
+      payload: { type: 'PAYMENT_REJECTED' }
     });
 
     res.json({ message: 'Pago rechazado', transaction: updatedTx });

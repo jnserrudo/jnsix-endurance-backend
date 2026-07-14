@@ -118,7 +118,7 @@ const createComparison = async (req, res) => {
         activities: {
           create: activityIds.map((activityId, index) => ({
             activityId,
-            color: this.getDefaultColor(index),
+            color: getDefaultColor(index),
             label: `Activity ${index + 1}`
           }))
         }
@@ -176,7 +176,7 @@ const addActivityToComparison = async (req, res) => {
       data: {
         comparisonId: id,
         activityId,
-        color: color || this.getDefaultColor(comparison.activities.length),
+        color: color || getDefaultColor(comparison.activities.length),
         label: label || `Activity ${comparison.activities.length + 1}`
       },
       include: {

@@ -50,11 +50,41 @@ const handleStravaWebhook = async (req, res) => {
     }
     
     console.log('✅ [STRAVA WEBHOOK] Usuario encontrado:', user.id);
+
+    // Check if activity already exists (Strava can send duplicate webhooks)
+    const existingActivity = await prisma.activity.findUnique({
+      where: { stravaId: object_id.toString() }
+    });
+    if (existingActivity) {
+      console.log('⚠️ [STRAVA WEBHOOK] Actividad ya existe, ignorando:', object_id);
+      return res.status(200).json({ status: 'already_exists' });
+    }
+
+    // Refresh Strava token if expired
+    let accessToken = user.stravaAccessToken;
+    if (user.stravaTokenExpiry && new Date(user.stravaTokenExpiry) <= new Date()) {
+      try {
+        console.log('🔵 [STRAVA WEBHOOK] Token expirado, refrescando...');
+        const refreshed = await stravaService.refreshToken(user.stravaRefreshToken);
+        accessToken = refreshed.access_token;
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            stravaAccessToken: refreshed.access_token,
+            stravaRefreshToken: refreshed.refresh_token,
+            stravaTokenExpiry: new Date(refreshed.expires_at * 1000)
+          }
+        });
+      } catch (refreshErr) {
+        console.error('🔴 [STRAVA WEBHOOK] Error refrescando token:', refreshErr.message);
+        return res.status(200).json({ status: 'token_refresh_failed' });
+      }
+    }
     
-    // Sincronizar la nueva actividad (con argumentos en orden correcto: activityId, token)
+    // Sincronizar la nueva actividad
     const newActivity = await stravaService.getActivity(
       object_id,
-      user.stravaAccessToken
+      accessToken
     );
     
     if (newActivity) {
@@ -89,7 +119,6 @@ const handleStravaWebhook = async (req, res) => {
 
       // Crear la actividad en la base de datos
       const activityData = {
-        id: uuidv4(),
         userId: user.id,
         stravaId: object_id.toString(),
         name: newActivity.name || 'Strava Activity',
