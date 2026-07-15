@@ -1017,11 +1017,94 @@ function calculateStreak(activities) {
   return streak;
 }
 
+const createManualActivity = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { name, type, distanceKm, movingTime, startDate, description } = req.body;
+    
+    if (!name || !type || !startDate) {
+      return res.status(400).json({ error: 'Faltan campos obligatorios' });
+    }
+
+    const activity = await prisma.activity.create({
+      data: {
+        userId,
+        name,
+        type,
+        distanceKm: parseFloat(distanceKm) || 0,
+        elevationM: 0,
+        movingTime: parseInt(movingTime) || 0,
+        startDate: new Date(startDate),
+        description: description || null,
+        isExternal: false
+      }
+    });
+
+    // Otorgar puntos
+    scoringService.awardActivityPointsIfNotScored(activity.id).catch(console.error);
+
+    res.status(201).json(activity);
+  } catch (error) {
+    console.error('🔴 [CREATE MANUAL ACTIVITY] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const uploadActivityPhotos = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const activity = await prisma.activity.findFirst({
+      where: { id, userId }
+    });
+
+    if (!activity) {
+      return res.status(404).json({ error: 'Actividad no encontrada' });
+    }
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No se subieron fotos' });
+    }
+
+    const lastPhoto = await prisma.activityPhoto.findFirst({
+      where: { activityId: id },
+      orderBy: { order: 'desc' }
+    });
+    
+    let currentOrder = lastPhoto ? lastPhoto.order + 1 : 0;
+    
+    const photosToCreate = req.files.map(file => {
+      const url = `/uploads/${file.filename}`;
+      return {
+        activityId: id,
+        url,
+        order: currentOrder++
+      };
+    });
+
+    await prisma.activityPhoto.createMany({
+      data: photosToCreate
+    });
+
+    const newPhotos = await prisma.activityPhoto.findMany({
+      where: { activityId: id }
+    });
+
+    res.status(201).json({ message: 'Fotos subidas exitosamente', photos: newPhotos });
+  } catch (error) {
+    console.error('🔴 [UPLOAD ACTIVITY PHOTOS] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   getActivities,
   getActivityById,
   createActivity,
+  createManualActivity,
   uploadActivity,
+  uploadActivityPhotos,
   importFromLink,
   getSharedActivity,
   shareActivity,

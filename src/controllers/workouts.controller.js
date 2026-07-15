@@ -14,7 +14,8 @@ const createSession = async (req, res) => {
         notes: notes || null
       }
     });
-    res.status(201).json(session);
+    // Add empty sets array since it's a new session
+    res.status(201).json({ ...session, sets: [] });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
