@@ -3,8 +3,8 @@ const jwt = require('jsonwebtoken');
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const API_KEY = process.env.BREVO_API_KEY;
-const FROM_EMAIL = process.env.FROM_EMAIL || 'no-reply@jnsix.com';
-const FROM_NAME = process.env.FROM_NAME || 'JNSIX Endurance';
+const FROM_EMAIL = process.env.FROM_EMAIL || 'jnserrudo@gmail.com';
+const FROM_NAME = process.env.FROM_NAME || 'Jnsix Sport';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const JWT_SECRET = process.env.JWT_SECRET;
 
