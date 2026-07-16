@@ -70,8 +70,57 @@ const getFilters = async (req, res) => {
   }
 };
 
+const createExercise = async (req, res) => {
+  try {
+    const data = req.body;
+    const exercise = await prisma.exercise.create({
+      data: {
+        name: data.name,
+        category: data.category,
+        bodyPart: data.bodyPart,
+        equipment: data.equipment,
+        target: data.target,
+        muscleGroup: data.muscleGroup || [],
+        instructions: data.instructions || [],
+        image: data.image,
+        gifUrl: data.gifUrl
+      }
+    });
+    res.status(201).json(exercise);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const updateExercise = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = req.body;
+    const exercise = await prisma.exercise.update({
+      where: { id },
+      data
+    });
+    res.json(exercise);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const deleteExercise = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.exercise.delete({ where: { id } });
+    res.json({ message: 'Exercise deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   listExercises,
   getExerciseById,
-  getFilters
+  getFilters,
+  createExercise,
+  updateExercise,
+  deleteExercise
 };

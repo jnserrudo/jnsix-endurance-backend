@@ -1,6 +1,28 @@
 const prisma = require('../lib/prisma');
 
 // ==========================================
+// ESTADÍSTICAS DEL SISTEMA
+// ==========================================
+const getStats = async (req, res) => {
+  try {
+    const totalUsers = await prisma.user.count({ where: { deletedAt: null } });
+    const activeUsers = await prisma.user.count({ where: { deletedAt: null, isActive: true } });
+    const transactions = await prisma.transaction.aggregate({
+      _sum: { amount: true },
+      where: { status: 'COMPLETED' }
+    });
+    
+    res.json({
+      totalUsers,
+      activeUsers,
+      totalRevenue: transactions._sum.amount || 0
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ==========================================
 // USUARIOS
 // ==========================================
 const listUsers = async (req, res) => {
@@ -405,7 +427,54 @@ const getAuditLogDetails = async (req, res) => {
   }
 };
 
+const deletePost = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.post.update({
+      where: { id },
+      data: { deletedAt: new Date() }
+    });
+    // Audit log
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'DELETE_POST',
+        entityId: id,
+        entityType: 'POST',
+        details: { reason: req.body.reason || 'Admin moderation' }
+      }
+    });
+    res.json({ message: 'Post deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const deleteGroup = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.group.update({
+      where: { id },
+      data: { deletedAt: new Date() }
+    });
+    // Audit log
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'DELETE_GROUP',
+        entityId: id,
+        entityType: 'GROUP',
+        details: { reason: req.body.reason || 'Admin moderation' }
+      }
+    });
+    res.json({ message: 'Group deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
+  getStats,
   listUsers,
   getUserDetails,
   editUser,
@@ -429,5 +498,7 @@ module.exports = {
   createCategory,
   editCategory,
   listAuditLogs,
-  getAuditLogDetails
+  getAuditLogDetails,
+  deletePost,
+  deleteGroup
 };

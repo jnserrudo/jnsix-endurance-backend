@@ -31,16 +31,29 @@ const ensureValidStravaToken = async (user) => {
 
 const getActivities = async (req, res) => {
   try {
-    console.log('🟢 [GET ACTIVITIES] Usuario:', req.user.id);
     const userId = req.user.id;
-    const { page = 1, limit = 20, type, sortBy = 'startDate', order = 'desc' } = req.query;
-
+    const { page = 1, limit = 20, type, sortBy = 'startDate', order = 'desc', q, startDate, endDate } = req.query;
+    
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
-
+    
     const where = { userId };
+    
     if (type) {
       where.type = type;
+    }
+    
+    if (q) {
+      where.OR = [
+        { name: { contains: q } },
+        { description: { contains: q } }
+      ];
+    }
+    
+    if (startDate || endDate) {
+      where.startDate = {};
+      if (startDate) where.startDate.gte = new Date(startDate);
+      if (endDate) where.startDate.lte = new Date(endDate);
     }
 
     const activities = await prisma.activity.findMany({

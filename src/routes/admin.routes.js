@@ -6,6 +6,9 @@ const { requirePermission } = require('../middleware/rbac.middleware');
 
 router.use(authenticateToken);
 
+// Estadísticas
+router.get('/stats', adminController.getStats);
+
 // Usuarios
 router.get('/users', requirePermission('users.view'), adminController.listUsers);
 router.get('/users/:id', requirePermission('users.view'), adminController.getUserDetails);
@@ -39,7 +42,12 @@ router.post('/categories', requirePermission('rankings.manage'), adminController
 router.put('/categories/:id', requirePermission('rankings.manage'), adminController.editCategory);
 
 // Auditoría
+router.get('/audit', requirePermission('audit.view'), adminController.listAuditLogs);
 router.get('/audit-logs', requirePermission('audit.view'), adminController.listAuditLogs);
 router.get('/audit-logs/:id', requirePermission('audit.view'), adminController.getAuditLogDetails);
+
+// Moderación
+router.delete('/posts/:id', requirePermission('content.moderate'), adminController.deletePost);
+router.delete('/groups/:id', requirePermission('content.moderate'), adminController.deleteGroup);
 
 module.exports = router;

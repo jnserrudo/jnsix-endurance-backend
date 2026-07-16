@@ -20,6 +20,8 @@ const paymentsRoutes = require('./routes/payments.routes');
 const exercisesRoutes = require('./routes/exercises.routes');
 const workoutsRoutes = require('./routes/workouts.routes');
 const usersRoutes = require('./routes/users.routes');
+const notificationsRoutes = require('./routes/notifications.routes');
+const plansRoutes = require('./routes/plans.routes');
 const authController = require('./controllers/auth.controller');
 const { auditContextMiddleware } = require('./services/audit.service');
 const { initSocket } = require('./services/socket.service');
@@ -77,6 +79,8 @@ app.use('/api/payments', paymentsRoutes);
 app.use('/api/exercises', exercisesRoutes);
 app.use('/api/workouts', workoutsRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/plans', plansRoutes);
 
 
 // Ruta especial para callback de Strava (sin /api para compatibilidad con Strava)
