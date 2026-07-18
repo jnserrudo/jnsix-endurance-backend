@@ -85,6 +85,9 @@ model User {
   workoutSessions       WorkoutSession[]
 
   subscriptionTier String @default("FREE") @map("subscription_tier")
+  stripeCustomerId String? @unique @map("stripe_customer_id")
+  
+  userAchievements      UserAchievement[]
 
   @@map("users")
 }
@@ -742,17 +745,19 @@ model EmailVerification {
 // ============================================================
 
 model Plan {
-  id            String         @id @default(uuid())
-  name          String         @unique
-  price         Float
-  currency      String         @default("USD")
-  interval      PlanInterval   @default(MONTHLY)
-  isActive      Boolean        @default(true) @map("is_active")
-  deletedAt     DateTime?      @map("deleted_at")
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
-  features      PlanFeature[]
-  subscriptions Subscription[]
+  id               String         @id @default(uuid())
+  name             String         @unique
+  price            Float
+  currency         String         @default("USD")
+  interval         PlanInterval   @default(MONTHLY)
+  stripeProductId  String?        @map("stripe_product_id")
+  stripePriceId    String?        @map("stripe_price_id")
+  isActive         Boolean        @default(true) @map("is_active")
+  deletedAt        DateTime?      @map("deleted_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  features         PlanFeature[]
+  subscriptions    Subscription[]
 
   @@map("plans")
 }
@@ -770,16 +775,17 @@ model PlanFeature {
 }
 
 model Subscription {
-  id        String             @id @default(uuid())
-  userId    String             @map("user_id")
-  planId    String             @map("plan_id")
-  status    SubscriptionStatus @default(ACTIVE)
-  startDate DateTime           @default(now()) @map("start_date")
-  endDate   DateTime?          @map("end_date")
-  isActive  Boolean            @default(true) @map("is_active")
-  deletedAt DateTime?          @map("deleted_at")
-  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan      Plan               @relation(fields: [planId], references: [id], onDelete: Cascade)
+  id                   String             @id @default(uuid())
+  userId               String             @map("user_id")
+  planId               String             @map("plan_id")
+  status               SubscriptionStatus @default(ACTIVE)
+  stripeSubscriptionId String?            @unique @map("stripe_subscription_id")
+  startDate            DateTime           @default(now()) @map("start_date")
+  endDate              DateTime?          @map("end_date")
+  isActive             Boolean            @default(true) @map("is_active")
+  deletedAt            DateTime?          @map("deleted_at")
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                 Plan               @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("subscriptions")
@@ -1042,4 +1048,32 @@ model WorkoutSet {
   @@index([sessionId])
   @@index([exerciseId])
   @@map("workout_sets")
+}
+
+model Achievement {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  iconUrl     String?  @map("icon_url")
+  criteria    Json?
+  points      Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  userAchievements UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String      @id @default(uuid())
+  userId        String      @map("user_id")
+  achievementId String      @map("achievement_id")
+  unlockedAt    DateTime    @default(now()) @map("unlocked_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@map("user_achievements")
 }

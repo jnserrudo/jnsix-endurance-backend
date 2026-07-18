@@ -11,8 +11,10 @@ router.get('/stats', adminController.getStats);
 
 // Usuarios
 router.get('/users', requirePermission('users.view'), adminController.listUsers);
+router.post('/users', requirePermission('users.manage'), adminController.createUser);
 router.get('/users/:id', requirePermission('users.view'), adminController.getUserDetails);
 router.patch('/users/:id', requirePermission('users.edit'), adminController.editUser);
+router.delete('/users/:id', requirePermission('users.manage'), adminController.deleteUser);
 router.patch('/users/:id/ban', requirePermission('users.ban'), adminController.banUser);
 router.patch('/users/:id/restore', requirePermission('users.ban'), adminController.restoreUser);
 
@@ -37,9 +39,12 @@ router.patch('/plans/:id/disable', requirePermission('plans.manage'), adminContr
 router.get('/ranks', requirePermission('rankings.manage'), adminController.listRanks);
 router.post('/ranks', requirePermission('rankings.manage'), adminController.createRank);
 router.put('/ranks/:id', requirePermission('rankings.manage'), adminController.editRank);
+router.delete('/ranks/:id', requirePermission('rankings.manage'), adminController.deleteRank);
+
 router.get('/categories', requirePermission('rankings.manage'), adminController.listCategories);
 router.post('/categories', requirePermission('rankings.manage'), adminController.createCategory);
 router.put('/categories/:id', requirePermission('rankings.manage'), adminController.editCategory);
+router.delete('/categories/:id', requirePermission('rankings.manage'), adminController.deleteCategory);
 
 // Auditoría
 router.get('/audit', requirePermission('audit.view'), adminController.listAuditLogs);
@@ -49,5 +54,11 @@ router.get('/audit-logs/:id', requirePermission('audit.view'), adminController.g
 // Moderación
 router.delete('/posts/:id', requirePermission('content.moderate'), adminController.deletePost);
 router.delete('/groups/:id', requirePermission('content.moderate'), adminController.deleteGroup);
+
+// Ejercicios (Librería Global)
+router.get('/exercises', requirePermission('exercises.manage'), adminController.listAdminExercises);
+router.post('/exercises', requirePermission('exercises.manage'), adminController.createExercise);
+router.put('/exercises/:id', requirePermission('exercises.manage'), adminController.editExercise);
+router.delete('/exercises/:id', requirePermission('exercises.manage'), adminController.deleteExercise);
 
 module.exports = router;

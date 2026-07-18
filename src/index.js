@@ -19,17 +19,23 @@ const adminRoutes = require('./routes/admin.routes');
 const paymentsRoutes = require('./routes/payments.routes');
 const exercisesRoutes = require('./routes/exercises.routes');
 const workoutsRoutes = require('./routes/workouts.routes');
+const achievementsRoutes = require('./routes/achievements.routes');
 const usersRoutes = require('./routes/users.routes');
 const notificationsRoutes = require('./routes/notifications.routes');
 const plansRoutes = require('./routes/plans.routes');
+const stripeRoutes = require('./routes/stripe.routes');
 const authController = require('./controllers/auth.controller');
 const { auditContextMiddleware } = require('./services/audit.service');
 const { initSocket } = require('./services/socket.service');
+const { startCronJobs } = require('./services/cron.service');
 const http = require('http');
 
 const app = express();
 const httpServer = http.createServer(app);
 const PORT = process.env.PORT || 5000;
+
+// Start background cron jobs
+startCronJobs();
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -48,6 +54,9 @@ app.use(cors({
   },
   credentials: true
 }));
+
+// We must mount Stripe webhook route BEFORE express.json() because it needs the raw body
+app.use('/api/stripe', stripeRoutes);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -72,6 +81,7 @@ app.use('/api/groups', groupsRoutes);
 app.use('/api/communities', communitiesRoutes);
 app.use('/api/rankings', rankingsRoutes);
 app.use('/api/feed', feedRoutes);
+app.use('/api/achievements', achievementsRoutes);
 app.use('/api/challenges', challengesRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);

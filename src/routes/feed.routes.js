@@ -14,4 +14,9 @@ router.post('/comments', feedController.createComment);
 router.get('/reactions', feedController.listReactions);
 router.post('/reactions', feedController.toggleReaction);
 
+router.put('/posts/:id', feedController.updatePost);
+router.delete('/posts/:id', feedController.deletePost);
+router.put('/comments/:id', feedController.updateComment);
+router.delete('/comments/:id', feedController.deleteComment);
+
 module.exports = router;

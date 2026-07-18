@@ -1,4 +1,5 @@
 const prisma = require('../lib/prisma');
+const bcrypt = require('bcrypt');
 
 // ==========================================
 // ESTADÍSTICAS DEL SISTEMA
@@ -82,18 +83,115 @@ const getUserDetails = async (req, res) => {
 
 const VALID_ROLES = ['ADMIN', 'ATHLETE'];
 
+
+const createUser = async (req, res) => {
+  try {
+    const { email, username, password, role } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    const user = await prisma.user.create({
+      data: {
+        email,
+        username,
+        password: hashedPassword,
+        role: role || 'ATHLETE'
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'CREATE_USER',
+        entityId: user.id,
+        entityType: 'USER',
+        metadata: { email, username, role }
+      }
+    });
+
+    res.status(201).json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const editUser = async (req, res) => {
   try {
-    const { isActive, role } = req.body;
+    const { isActive, role, roleIds, username } = req.body;
 
-    if (role !== undefined && !VALID_ROLES.includes(role)) {
-      return res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
-    }
+    const data = {};
+    if (isActive !== undefined) data.isActive = isActive;
+    if (role !== undefined) data.role = role;
+    if (username !== undefined) data.username = username;
 
     const user = await prisma.user.update({
       where: { id: req.params.id },
-      data: { isActive, role }
+      data
     });
+
+    if (roleIds && Array.isArray(roleIds)) {
+      await prisma.userRole.deleteMany({ where: { userId: user.id } });
+      if (roleIds.length > 0) {
+        await prisma.userRole.createMany({
+          data: roleIds.map(roleId => ({ userId: user.id, roleId }))
+        });
+      }
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'EDIT_USER',
+        entityId: user.id,
+        entityType: 'USER',
+        metadata: { updatedFields: Object.keys(data) }
+      }
+    });
+
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const deleteUser = async (req, res) => {
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: { deletedAt: new Date() }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'DELETE_USER',
+        entityId: user.id,
+        entityType: 'USER'
+      }
+    });
+
+    res.json({ message: 'User deleted successfully', user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+    if (isActive !== undefined) data.isActive = isActive;
+    if (role !== undefined) data.role = role;
+
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data
+    });
+
+    // Handle dynamic RoleDefinitions
+    if (roleIds && Array.isArray(roleIds)) {
+      await prisma.userRole.deleteMany({ where: { userId: user.id } });
+      if (roleIds.length > 0) {
+        await prisma.userRole.createMany({
+          data: roleIds.map(roleId => ({ userId: user.id, roleId }))
+        });
+      }
+    }
+
     res.json(user);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -373,13 +471,51 @@ const createCategory = async (req, res) => {
   }
 };
 
-const editCategory = async (req, res) => {
+
+const editCategory,
+  deleteRank,
+  deleteCategory = async (req, res) => {
   try {
     const category = await prisma.category.update({
       where: { id: req.params.id },
       data: req.body
     });
+    
+    await prisma.auditLog.create({
+      data: { userId: req.user.id, action: 'EDIT_CATEGORY', entityId: category.id, entityType: 'CATEGORY' }
+    });
+    
     res.json(category);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const deleteRank = async (req, res) => {
+  try {
+    const rank = await prisma.rank.update({
+      where: { id: req.params.id },
+      data: { deletedAt: new Date() }
+    });
+    await prisma.auditLog.create({
+      data: { userId: req.user.id, action: 'DELETE_RANK', entityId: rank.id, entityType: 'RANK' }
+    });
+    res.json({ message: 'Rank deleted', rank });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const deleteCategory = async (req, res) => {
+  try {
+    const category = await prisma.category.update({
+      where: { id: req.params.id },
+      data: { deletedAt: new Date() }
+    });
+    await prisma.auditLog.create({
+      data: { userId: req.user.id, action: 'DELETE_CATEGORY', entityId: category.id, entityType: 'CATEGORY' }
+    });
+    res.json({ message: 'Category deleted', category });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -403,7 +539,7 @@ const listAuditLogs = async (req, res) => {
       skip,
       take: parseInt(limit),
       orderBy: { createdAt: 'desc' },
-      include: { user: { select: { email: true } } }
+      include: { user: true }
     });
 
     const total = await prisma.auditLog.count({ where });
@@ -418,7 +554,7 @@ const getAuditLogDetails = async (req, res) => {
   try {
     const log = await prisma.auditLog.findUnique({
       where: { id: req.params.id },
-      include: { user: { select: { email: true } } }
+      include: { user: true }
     });
     if (!log) return res.status(404).json({ error: 'Audit log not found' });
     res.json(log);
@@ -441,7 +577,7 @@ const deletePost = async (req, res) => {
         action: 'DELETE_POST',
         entityId: id,
         entityType: 'POST',
-        details: { reason: req.body.reason || 'Admin moderation' }
+        metadata: { reason: req.body.reason || 'Admin moderation' }
       }
     });
     res.json({ message: 'Post deleted successfully' });
@@ -473,11 +609,78 @@ const deleteGroup = async (req, res) => {
   }
 };
 
+// ==========================================
+// EJERCICIOS (Global Library)
+// ==========================================
+const listAdminExercises = async (req, res) => {
+  try {
+    const { search, page = 1, limit = 50 } = req.query;
+    const where = { deletedAt: null };
+
+    if (search) {
+      where.name = { contains: search, mode: 'insensitive' };
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const exercises = await prisma.exercise.findMany({
+      where,
+      skip,
+      take: parseInt(limit),
+      orderBy: { name: 'asc' }
+    });
+
+    const total = await prisma.exercise.count({ where });
+
+    res.json({ exercises, total, page: parseInt(page), limit: parseInt(limit) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const createExercise = async (req, res) => {
+  try {
+    const { name, description, primaryMuscle, secondaryMuscles, equipment, mechanics, difficulty, gifUrl, videoUrl } = req.body;
+    const exercise = await prisma.exercise.create({
+      data: { name, description, primaryMuscle, secondaryMuscles, equipment, mechanics, difficulty, gifUrl, videoUrl }
+    });
+    res.status(201).json(exercise);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const editExercise = async (req, res) => {
+  try {
+    const { name, description, primaryMuscle, secondaryMuscles, equipment, mechanics, difficulty, gifUrl, videoUrl } = req.body;
+    const exercise = await prisma.exercise.update({
+      where: { id: req.params.id },
+      data: { name, description, primaryMuscle, secondaryMuscles, equipment, mechanics, difficulty, gifUrl, videoUrl }
+    });
+    res.json(exercise);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const deleteExercise = async (req, res) => {
+  try {
+    await prisma.exercise.update({
+      where: { id: req.params.id },
+      data: { deletedAt: new Date() }
+    });
+    res.json({ message: 'Exercise deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   getStats,
   listUsers,
   getUserDetails,
+  createUser,
   editUser,
+  deleteUser,
   banUser,
   restoreUser,
   listRoles,
@@ -500,5 +703,9 @@ module.exports = {
   listAuditLogs,
   getAuditLogDetails,
   deletePost,
-  deleteGroup
+  deleteGroup,
+  listAdminExercises,
+  createExercise,
+  editExercise,
+  deleteExercise
 };

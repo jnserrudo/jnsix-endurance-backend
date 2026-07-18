@@ -228,11 +228,113 @@ const toggleReaction = async (req, res) => {
   }
 };
 
+const updatePost = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const postId = req.params.id;
+    const { content } = req.body;
+
+    if (!content) return res.status(400).json({ error: 'content is required' });
+
+    const post = await prisma.post.findUnique({ where: { id: postId } });
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+
+    if (post.userId !== userId && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Not authorized to update this post' });
+    }
+
+    const updated = await prisma.post.update({
+      where: { id: postId },
+      data: { content }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const deletePost = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const postId = req.params.id;
+
+    const post = await prisma.post.findUnique({ where: { id: postId } });
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+
+    if (post.userId !== userId && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Not authorized to delete this post' });
+    }
+
+    await prisma.post.update({
+      where: { id: postId },
+      data: { isActive: false, deletedAt: new Date() }
+    });
+
+    res.json({ success: true, message: 'Post deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const updateComment = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const commentId = req.params.id;
+    const { content } = req.body;
+
+    if (!content) return res.status(400).json({ error: 'content is required' });
+
+    const comment = await prisma.comment.findUnique({ where: { id: commentId } });
+    if (!comment) return res.status(404).json({ error: 'Comment not found' });
+
+    if (comment.userId !== userId && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Not authorized to update this comment' });
+    }
+
+    const updated = await prisma.comment.update({
+      where: { id: commentId },
+      data: { content }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const deleteComment = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const commentId = req.params.id;
+
+    const comment = await prisma.comment.findUnique({ where: { id: commentId } });
+    if (!comment) return res.status(404).json({ error: 'Comment not found' });
+
+    if (comment.userId !== userId && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Not authorized to delete this comment' });
+    }
+
+    await prisma.comment.update({
+      where: { id: commentId },
+      data: { isActive: false, deletedAt: new Date() }
+    });
+
+    res.json({ success: true, message: 'Comment deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   getFeed,
   createPost,
   listComments,
   createComment,
   listReactions,
-  toggleReaction
+  toggleReaction,
+  updatePost,
+  deletePost,
+  updateComment,
+  deleteComment
 };

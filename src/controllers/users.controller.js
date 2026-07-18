@@ -26,7 +26,18 @@ const PROFILE_SELECT = {
   activitiesVisible: true,
   stravaId: true,
   emailVerified: true,
-  createdAt: true
+  createdAt: true,
+  userScore: {
+    include: {
+      rank: true,
+      category: true
+    }
+  },
+  _count: {
+    select: {
+      activities: true
+    }
+  }
 };
 
 const PUBLIC_CARD_SELECT = {
