@@ -174,29 +174,6 @@ const deleteUser = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
-    if (isActive !== undefined) data.isActive = isActive;
-    if (role !== undefined) data.role = role;
-
-    const user = await prisma.user.update({
-      where: { id: req.params.id },
-      data
-    });
-
-    // Handle dynamic RoleDefinitions
-    if (roleIds && Array.isArray(roleIds)) {
-      await prisma.userRole.deleteMany({ where: { userId: user.id } });
-      if (roleIds.length > 0) {
-        await prisma.userRole.createMany({
-          data: roleIds.map(roleId => ({ userId: user.id, roleId }))
-        });
-      }
-    }
-
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
 
 const banUser = async (req, res) => {
   try {
