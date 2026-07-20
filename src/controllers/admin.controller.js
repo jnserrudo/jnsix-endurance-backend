@@ -675,6 +675,8 @@ module.exports = {
   listCategories,
   createCategory,
   editCategory,
+  deleteCategory,
+  deleteRank,
   listAuditLogs,
   getAuditLogDetails,
   deletePost,
