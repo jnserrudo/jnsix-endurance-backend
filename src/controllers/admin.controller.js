@@ -449,9 +449,7 @@ const createCategory = async (req, res) => {
 };
 
 
-const editCategory,
-  deleteRank,
-  deleteCategory = async (req, res) => {
+const editCategory = async (req, res) => {
   try {
     const category = await prisma.category.update({
       where: { id: req.params.id },
