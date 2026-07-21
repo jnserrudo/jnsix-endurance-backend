@@ -52,16 +52,26 @@ const PUBLIC_CARD_SELECT = {
 
 const getMyProfile = async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: PROFILE_SELECT
-    });
+    const [user, activityStats] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: PROFILE_SELECT
+      }),
+      prisma.activity.aggregate({
+        where: { userId: req.user.id },
+        _sum: { distanceKm: true, movingTime: true }
+      })
+    ]);
 
     if (!user) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    res.json(user);
+    res.json({
+      ...user,
+      totalDistance: activityStats._sum.distanceKm || 0,
+      totalTime: activityStats._sum.movingTime || 0
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

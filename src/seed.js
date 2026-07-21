@@ -33,6 +33,61 @@ async function main() {
 
   console.log('Athlete user created:', athlete.email);
 
+  // Crear planes PRO necesarios para pagos y suscripciones
+  const proPlan = await prisma.plan.upsert({
+    where: { name: 'PRO' },
+    update: {},
+    create: {
+      name: 'PRO',
+      price: 9.99,
+      interval: 'MONTHLY',
+      features: {
+        create: [
+          { featureKey: 'advanced_analytics' },
+          { featureKey: 'unlimited_activities' },
+          { featureKey: 'ai_coach' }
+        ]
+      }
+    }
+  });
+
+  const proYearlyPlan = await prisma.plan.upsert({
+    where: { name: 'PRO_YEARLY' },
+    update: {},
+    create: {
+      name: 'PRO_YEARLY',
+      price: 99.99,
+      interval: 'YEARLY',
+      features: {
+        create: [
+          { featureKey: 'advanced_analytics' },
+          { featureKey: 'unlimited_activities' },
+          { featureKey: 'ai_coach' }
+        ]
+      }
+    }
+  });
+
+  console.log('Plans created:', proPlan.name, proYearlyPlan.name);
+
+  // Seed feature flags para que los módulos sociales/gamificación estén habilitados
+  const flags = [
+    { key: 'feed_enabled', name: 'Feed' },
+    { key: 'chat_enabled', name: 'Chat' },
+    { key: 'groups_enabled', name: 'Grupos' },
+    { key: 'communities_enabled', name: 'Comunidades' },
+    { key: 'rankings_enabled', name: 'Rankings' },
+    { key: 'challenges_enabled', name: 'Retos' }
+  ];
+  for (const flag of flags) {
+    await prisma.featureFlag.upsert({
+      where: { key: flag.key },
+      update: {},
+      create: { ...flag, isEnabled: true }
+    });
+  }
+  console.log('Feature flags seeded');
+
   const activities = [
     {
       name: 'Trail Running - Montaña Alta',

@@ -7,9 +7,19 @@ const listPublicPlans = async (req, res) => {
       include: {
         features: true
       },
-      orderBy: { monthlyPrice: 'asc' }
+      orderBy: { price: 'asc' }
     });
-    res.json(plans);
+
+    const mapped = plans.map((plan) => ({
+      ...plan,
+      monthlyPrice: plan.price,
+      features: (plan.features || []).map((f) => ({
+        ...f,
+        name: f.featureKey
+      }))
+    }));
+
+    res.json(mapped);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

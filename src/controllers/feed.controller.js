@@ -6,8 +6,9 @@ const PAGE_SIZE = 20;
 const getFeed = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { page = 1 } = req.query;
+    const { page = 1, q } = req.query;
     const skip = (parseInt(page) - 1) * PAGE_SIZE;
+    const searchTerm = q ? q.trim() : '';
 
     // Obtener IDs de amigos
     const friendships = await prisma.friendship.findMany({
@@ -17,6 +18,14 @@ const getFeed = async (req, res) => {
       }
     });
     const friendIds = friendships.map((f) => (f.userId === userId ? f.friendId : f.userId));
+
+    // Filtro de búsqueda por texto (insensible a mayúsculas en Prisma: mode: 'insensitive')
+    const searchFilter = searchTerm
+      ? { OR: [{ name: { contains: searchTerm, mode: 'insensitive' } }, { description: { contains: searchTerm, mode: 'insensitive' } }] }
+      : {};
+    const postSearchFilter = searchTerm
+      ? { content: { contains: searchTerm, mode: 'insensitive' } }
+      : {};
 
     // IDs de grupos/comunidades a los que pertenece el usuario
     const groupIds = (
@@ -30,13 +39,14 @@ const getFeed = async (req, res) => {
     const activities = await prisma.activity.findMany({
       where: {
         userId: { in: [...friendIds, userId] },
-        visibility: { in: ['PUBLIC', 'FRIENDS'] }
+        visibility: { in: ['PUBLIC', 'FRIENDS'] },
+        ...searchFilter
       },
       orderBy: { startDate: 'desc' },
       take: PAGE_SIZE,
       include: {
         user: { select: { id: true, email: true } },
-        _count: { select: { comments: true } }
+        _count: { select: { comments: true, reactions: true } }
       }
     });
 
@@ -44,6 +54,7 @@ const getFeed = async (req, res) => {
       where: {
         isActive: true,
         deletedAt: null,
+        ...postSearchFilter,
         OR: [
           { userId },
           { userId: { in: friendIds } },
@@ -55,13 +66,42 @@ const getFeed = async (req, res) => {
       include: {
         user: { select: { id: true, email: true } },
         activity: { select: { id: true, name: true } },
-        _count: { select: { comments: true } }
+        _count: { select: { comments: true, reactions: true } }
       }
     });
 
+    // Determinar si el usuario actual ya reacciono a cada actividad/post
+    const activityIds = activities.map((a) => a.id);
+    const postIds = posts.map((p) => p.id);
+
+    const myReactions = await prisma.reaction.findMany({
+      where: {
+        userId,
+        OR: [
+          { targetType: 'ACTIVITY', targetId: { in: activityIds } },
+          { targetType: 'POST', targetId: { in: postIds } }
+        ]
+      },
+      select: { targetType: true, targetId: true }
+    });
+    const reactedActivityIds = new Set(
+      myReactions.filter((r) => r.targetType === 'ACTIVITY').map((r) => r.targetId)
+    );
+    const reactedPostIds = new Set(
+      myReactions.filter((r) => r.targetType === 'POST').map((r) => r.targetId)
+    );
+
     const combined = [
-      ...activities.map((a) => ({ type: 'ACTIVITY', data: a, date: a.startDate })),
-      ...posts.map((p) => ({ type: 'POST', data: p, date: p.createdAt }))
+      ...activities.map((a) => ({
+        type: 'ACTIVITY',
+        data: { ...a, hasReacted: reactedActivityIds.has(a.id) },
+        date: a.startDate
+      })),
+      ...posts.map((p) => ({
+        type: 'POST',
+        data: { ...p, hasReacted: reactedPostIds.has(p.id) },
+        date: p.createdAt
+      }))
     ]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(skip, skip + PAGE_SIZE);
