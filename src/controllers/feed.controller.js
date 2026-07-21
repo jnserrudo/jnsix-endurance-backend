@@ -46,7 +46,7 @@ const getFeed = async (req, res) => {
       take: PAGE_SIZE,
       include: {
         user: { select: { id: true, email: true } },
-        _count: { select: { comments: true, reactions: true } }
+        _count: { select: { comments: true } }
       }
     });
 
@@ -66,7 +66,7 @@ const getFeed = async (req, res) => {
       include: {
         user: { select: { id: true, email: true } },
         activity: { select: { id: true, name: true } },
-        _count: { select: { comments: true, reactions: true } }
+        _count: { select: { comments: true } }
       }
     });
 
@@ -91,15 +91,39 @@ const getFeed = async (req, res) => {
       myReactions.filter((r) => r.targetType === 'POST').map((r) => r.targetId)
     );
 
+    const reactionCounts = await prisma.reaction.groupBy({
+      by: ['targetType', 'targetId'],
+      where: {
+        OR: [
+          { targetType: 'ACTIVITY', targetId: { in: activityIds } },
+          { targetType: 'POST', targetId: { in: postIds } }
+        ]
+      },
+      _count: { id: true }
+    });
+    
+    const reactionCountMap = {};
+    for (const row of reactionCounts) {
+      reactionCountMap[`${row.targetType}_${row.targetId}`] = row._count.id;
+    }
+
     const combined = [
       ...activities.map((a) => ({
         type: 'ACTIVITY',
-        data: { ...a, hasReacted: reactedActivityIds.has(a.id) },
+        data: { 
+          ...a, 
+          hasReacted: reactedActivityIds.has(a.id),
+          _count: { ...a._count, reactions: reactionCountMap[`ACTIVITY_${a.id}`] || 0 }
+        },
         date: a.startDate
       })),
       ...posts.map((p) => ({
         type: 'POST',
-        data: { ...p, hasReacted: reactedPostIds.has(p.id) },
+        data: { 
+          ...p, 
+          hasReacted: reactedPostIds.has(p.id),
+          _count: { ...p._count, reactions: reactionCountMap[`POST_${p.id}`] || 0 }
+        },
         date: p.createdAt
       }))
     ]
