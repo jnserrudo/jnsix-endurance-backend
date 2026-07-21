@@ -29,8 +29,8 @@ const PROFILE_SELECT = {
   createdAt: true,
   userScore: {
     include: {
-      rank: true,
-      category: true
+      currentRank: true,
+      currentCategory: true
     }
   },
   _count: {
