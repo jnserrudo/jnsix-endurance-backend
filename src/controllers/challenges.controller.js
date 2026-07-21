@@ -67,12 +67,16 @@ const listChallenges = async (req, res) => {
       where,
       include: {
         createdBy: { select: { id: true, email: true } },
-        _count: { select: { participants: true } }
+        _count: { select: { participants: true } },
+        participants: { where: { userId }, select: { id: true, currentProgress: true, completed: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
 
-    res.json(challenges);
+    res.json(challenges.map(c => {
+      const myParticipant = c.participants[0];
+      return { ...c, isParticipant: !!myParticipant, currentProgress: myParticipant?.currentProgress || 0, completed: !!myParticipant?.completed };
+    }));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

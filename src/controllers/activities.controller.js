@@ -1,5 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
+const polyline = require('@mapbox/polyline');
 const fileParserService = require('../services/fileParser.service');
 const storageService = require('../services/storage.service');
 const stravaService = require('../services/strava.service');
@@ -1033,10 +1034,21 @@ function calculateStreak(activities) {
 const createManualActivity = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, type, distanceKm, movingTime, startDate, description } = req.body;
-    
+    const {
+      name, type, distanceKm, elevationM, movingTime, elapsedTime,
+      startDate, description, averageHr, maxHr, calories, cadence,
+      coordinates, mapPolyline, visibility, laps, extraFields
+    } = req.body;
+
     if (!name || !type || !startDate) {
       return res.status(400).json({ error: 'Faltan campos obligatorios' });
+    }
+
+    let encodedPolyline = null;
+    if (Array.isArray(coordinates) && coordinates.length > 0) {
+      encodedPolyline = polyline.encode(coordinates);
+    } else if (typeof mapPolyline === 'string' && mapPolyline.trim()) {
+      encodedPolyline = mapPolyline;
     }
 
     const activity = await prisma.activity.create({
@@ -1045,15 +1057,40 @@ const createManualActivity = async (req, res) => {
         name,
         type,
         distanceKm: parseFloat(distanceKm) || 0,
-        elevationM: 0,
+        elevationM: parseFloat(elevationM) || 0,
         movingTime: parseInt(movingTime) || 0,
+        elapsedTime: parseInt(elapsedTime) || parseInt(movingTime) || 0,
         startDate: new Date(startDate),
         description: description || null,
-        isExternal: false
+        averageHr: averageHr ? parseInt(averageHr) : null,
+        maxHr: maxHr ? parseInt(maxHr) : null,
+        calories: calories ? parseInt(calories) : null,
+        cadence: cadence ? parseInt(cadence) : null,
+        mapPolyline: encodedPolyline,
+        rawData: {
+          coordinates: Array.isArray(coordinates) ? coordinates : [],
+          extraFields: extraFields || null
+        },
+        isExternal: false,
+        visibility: visibility || 'PUBLIC',
+        laps: {
+          create: Array.isArray(laps) && laps.length > 0
+            ? laps.map((lap, index) => ({
+                splitNum: lap.splitNum || index + 1,
+                distance: parseFloat(lap.distance) || 0,
+                elevationGain: parseFloat(lap.elevationGain) || 0,
+                averagePace: parseFloat(lap.averagePace) || 0,
+                averageHr: lap.averageHr ? parseInt(lap.averageHr) : null,
+                maxHr: lap.maxHr ? parseInt(lap.maxHr) : null
+              }))
+            : []
+        }
+      },
+      include: {
+        laps: true
       }
     });
 
-    // Otorgar puntos
     scoringService.awardActivityPointsIfNotScored(activity.id).catch(console.error);
 
     res.status(201).json(activity);

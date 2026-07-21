@@ -55,7 +55,7 @@ const getFeed = async (req, res) => {
       include: {
         user: { select: { id: true, email: true } },
         activity: { select: { id: true, name: true } },
-        _count: { select: { comments: true } }
+        _count: { select: { comments: true, reactions: true } }
       }
     });
 
@@ -81,8 +81,14 @@ const createPost = async (req, res) => {
       return res.status(400).json({ error: 'content is required' });
     }
 
+    let imageUrl = null;
+    if (req.file) {
+      const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+      imageUrl = `${backendUrl}/uploads/${req.file.filename}`;
+    }
+
     const post = await prisma.post.create({
-      data: { userId, content, activityId: activityId || null },
+      data: { userId, content, activityId: activityId || null, imageUrl },
       include: {
         user: { select: { id: true, email: true } },
         activity: { select: { id: true, name: true } }

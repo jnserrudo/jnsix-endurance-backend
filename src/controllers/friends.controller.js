@@ -34,7 +34,23 @@ const searchUsers = async (req, res) => {
       take: 20
     });
 
-    res.json(users);
+    // Check friendship status for each user
+    const usersWithStatus = await Promise.all(users.map(async (u) => {
+      const friendship = await prisma.friendship.findFirst({
+        where: {
+          OR: [
+            { userId: userId, friendId: u.id },
+            { userId: u.id, friendId: userId }
+          ]
+        }
+      });
+      return {
+        ...u,
+        friendStatus: friendship ? friendship.status : 'NONE'
+      };
+    }));
+
+    res.json(usersWithStatus);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

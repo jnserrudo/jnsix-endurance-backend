@@ -110,6 +110,7 @@ model Activity {
   fileUrl           String?              @map("file_url")
   fileType          FileType?            @map("file_type")
   rawData           Json?                @map("raw_data")
+  mapPolyline       String?              @db.Text @map("map_polyline")
   description       String?              @db.Text
   privateNotes      String?              @map("private_notes") @db.Text
   visibility        Visibility           @default(PRIVATE)
@@ -549,6 +550,7 @@ model Post {
   userId     String    @map("user_id")
   activityId String?   @map("activity_id")
   content    String    @db.Text
+  imageUrl   String?   @map("image_url")
   isActive   Boolean   @default(true) @map("is_active")
   deletedAt  DateTime? @map("deleted_at")
   createdAt  DateTime  @default(now()) @map("created_at")
