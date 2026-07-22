@@ -260,6 +260,8 @@ Proporciona insights generales sobre esta actividad:
 
   async generateTrainingPlan(userProfile, goal, weeks = 12) {
     const prompt = `
+Genera un plan de entrenamiento estructurado en formato JSON, estricto y sin texto adicional.
+
 Perfil del atleta:
 - Nivel: ${userProfile.level || 'Intermedio'}
 - Objetivo: ${goal}
@@ -267,15 +269,37 @@ Perfil del atleta:
 - Disponibilidad: ${userProfile.availability || '4-5 días/semana'}
 ${userProfile.currentDistance ? `- Distancia actual: ${userProfile.currentDistance} km` : ''}
 
-Genera un plan de entrenamiento estructurado que incluya:
-1. Distribución semanal de entrenamientos
-2. Tipos de sesiones (intervalos, fondo, recuperación, etc.)
-3. Progresión gradual
-4. Semanas de descarga
-5. Consejos de nutrición y recuperación
-`;
+El formato JSON de salida debe ser exactamente:
+{
+  "name": "Nombre del Plan",
+  "description": "Descripción general",
+  "level": "INTERMEDIATE",
+  "weeks": ${weeks},
+  "sessions": [
+    {
+      "week": 1,
+      "day": 1,
+      "name": "Carrera suave",
+      "description": "Correr a ritmo conversacional",
+      "targetMetric": "DISTANCE",
+      "targetValue": 5
+    }
+  ]
+}
 
-    return await this.analyzeActivity({}, 'GENERAL_INSIGHT', prompt);
+Responde SOLO el JSON.`;
+
+    const result = await this.analyzeActivity({}, 'GENERAL_INSIGHT', prompt);
+    
+    // Attempt to parse JSON safely
+    try {
+      // Find JSON boundaries just in case the LLM outputs markdown formatting
+      const jsonStr = result.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(jsonStr);
+    } catch (e) {
+      console.error('Error parsing AI training plan JSON:', e);
+      throw new Error('AI returned invalid format');
+    }
   }
 }
 

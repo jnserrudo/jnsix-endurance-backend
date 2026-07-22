@@ -569,10 +569,14 @@ Proporciona:
 const chatWithCoach = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { messages } = req.body;
+    let { messages, message } = req.body;
 
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: 'Messages array is required' });
+    if (!messages && !message) {
+      return res.status(400).json({ error: 'Message or messages array is required' });
+    }
+
+    if (!messages && message) {
+      messages = [{ role: 'user', content: message }];
     }
 
     // Obtener las últimas 15 actividades del atleta para el contexto de entrenamiento

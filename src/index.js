@@ -24,6 +24,11 @@ const usersRoutes = require('./routes/users.routes');
 const notificationsRoutes = require('./routes/notifications.routes');
 const plansRoutes = require('./routes/plans.routes');
 const stripeRoutes = require('./routes/stripe.routes');
+const gamificationRoutes = require('./routes/gamification.routes');
+const storiesRoutes = require('./routes/stories.routes');
+const trainingPlansRoutes = require('./routes/trainingPlans.routes');
+const segmentsRoutes = require('./routes/segments.routes');
+const liveChallengesRoutes = require('./routes/liveChallenges.routes');
 const authController = require('./controllers/auth.controller');
 const { auditContextMiddleware } = require('./services/audit.service');
 const { initSocket } = require('./services/socket.service');
@@ -91,6 +96,11 @@ app.use('/api/workouts', workoutsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/plans', plansRoutes);
+app.use('/api/gamification', gamificationRoutes);
+app.use('/api/stories', storiesRoutes);
+app.use('/api/training-plans', trainingPlansRoutes);
+app.use('/api/segments', segmentsRoutes);
+app.use('/api/live-challenges', liveChallengesRoutes);
 
 
 // Ruta especial para callback de Strava (sin /api para compatibilidad con Strava)

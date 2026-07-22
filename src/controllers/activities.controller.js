@@ -7,6 +7,7 @@ const stravaService = require('../services/strava.service');
 const syncQueueService = require('../services/syncQueue.service');
 const scoringService = require('../services/scoring.service');
 const challengesService = require('../services/challenges.service');
+const gamificationService = require('../services/gamification.service');
 const prisma = require('../lib/prisma');
 
 const ensureValidStravaToken = async (user) => {
@@ -1052,7 +1053,8 @@ const createManualActivity = async (req, res) => {
     const {
       name, type, distanceKm, elevationM, movingTime, elapsedTime,
       startDate, description, averageHr, maxHr, calories, cadence,
-      coordinates, mapPolyline, visibility, laps, extraFields
+      coordinates, mapPolyline, visibility, laps, extraFields,
+      rpe, feeling, notes
     } = req.body;
 
     if (!name || !type || !startDate) {
@@ -1060,10 +1062,18 @@ const createManualActivity = async (req, res) => {
     }
 
     let encodedPolyline = null;
-    if (Array.isArray(coordinates) && coordinates.length > 0) {
-      encodedPolyline = polyline.encode(coordinates);
-    } else if (typeof mapPolyline === 'string' && mapPolyline.trim()) {
-      encodedPolyline = mapPolyline;
+    try {
+      if (Array.isArray(coordinates) && coordinates.length > 0) {
+        // Asegurar que sean pares [lat, lng] numéricos
+        const validCoords = coordinates.filter(c => Array.isArray(c) && c.length >= 2 && !isNaN(c[0]) && !isNaN(c[1]));
+        if (validCoords.length > 0) {
+          encodedPolyline = polyline.encode(validCoords);
+        }
+      } else if (typeof mapPolyline === 'string' && mapPolyline.trim()) {
+        encodedPolyline = mapPolyline;
+      }
+    } catch (err) {
+      console.warn('[CREATE ACTIVITY] Warning: Error al parsear coordinates/mapPolyline', err.message);
     }
 
     const activity = await prisma.activity.create({
@@ -1107,6 +1117,18 @@ const createManualActivity = async (req, res) => {
     });
 
     scoringService.awardActivityPointsIfNotScored(activity.id).catch(console.error);
+    gamificationService.checkMissionsForActivity(userId, activity).catch(console.error);
+
+    if (rpe) {
+      await prisma.effortLog.create({
+        data: {
+          userId,
+          activityId: activity.id,
+          rpe: parseInt(rpe) || 5,
+          notes: notes || null
+        }
+      });
+    }
 
     res.status(201).json(activity);
   } catch (error) {
