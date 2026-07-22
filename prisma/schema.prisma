@@ -89,6 +89,15 @@ model User {
   
   userAchievements      UserAchievement[]
 
+  userMissions          UserMission[]
+  streak                Streak?
+  userPlans             UserPlan[]
+  effortLogs            EffortLog[]
+  stories               Story[]
+  storyViews            StoryView[]
+  segmentEfforts        SegmentLeaderboard[]
+
+
   @@map("users")
 }
 
@@ -126,6 +135,10 @@ model Activity {
   posts             Post[]
   comments          Comment[]
   scoreEvents       ScoreEvent[]
+
+  effortLog         EffortLog?
+  segmentEfforts    SegmentLeaderboard[]
+
 
   @@index([userId])
   @@index([startDate])
@@ -1078,4 +1091,200 @@ model UserAchievement {
   @@unique([userId, achievementId])
   @@index([userId])
   @@map("user_achievements")
+}
+
+
+// ============================================================
+// Gamificación - Misiones y Rachas
+// ============================================================
+
+model Mission {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  type        String   // Ej: "WEEKLY_DISTANCE", "CONSISTENCY"
+  targetValue Float
+  rewardPts   Int      @default(0)
+  startDate   DateTime?
+  endDate     DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  userMissions UserMission[]
+
+  @@map("missions")
+}
+
+model UserMission {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  missionId       String   @map("mission_id")
+  currentProgress Float    @default(0)
+  completed       Boolean  @default(false)
+  completedAt     DateTime?
+  
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, missionId])
+  @@index([userId])
+  @@map("user_missions")
+}
+
+model Streak {
+  id             String   @id @default(uuid())
+  userId         String   @unique @map("user_id")
+  currentStreak  Int      @default(0)
+  longestStreak  Int      @default(0)
+  lastActivityAt DateTime?
+  updatedAt      DateTime @updatedAt
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("streaks")
+}
+
+// ============================================================
+// Entrenamiento y Planes IA
+// ============================================================
+
+model TrainingPlan {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  level       String   // BEGINNER, INTERMEDIATE, ADVANCED
+  weeks       Int
+  createdAt   DateTime @default(now())
+
+  sessions  PlanSession[]
+  userPlans UserPlan[]
+
+  @@map("training_plans")
+}
+
+model PlanSession {
+  id             String   @id @default(uuid())
+  trainingPlanId String   @map("training_plan_id")
+  week           Int
+  day            Int
+  name           String
+  description    String?  @db.Text
+  targetMetric   String?  // Ej: DISTANCE, TIME
+  targetValue    Float?
+  
+  plan TrainingPlan @relation(fields: [trainingPlanId], references: [id], onDelete: Cascade)
+
+  @@index([trainingPlanId])
+  @@map("plan_sessions")
+}
+
+model UserPlan {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  trainingPlanId String   @map("training_plan_id")
+  startDate      DateTime
+  isActive       Boolean  @default(true)
+  completed      Boolean  @default(false)
+  
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan TrainingPlan @relation(fields: [trainingPlanId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_plans")
+}
+
+model EffortLog {
+  id         String   @id @default(uuid())
+  activityId String   @unique @map("activity_id")
+  userId     String   @map("user_id")
+  rpe        Int      // Rate of Perceived Exertion 1-10
+  notes      String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("effort_logs")
+}
+
+// ============================================================
+// Historias y Social Expandido
+// ============================================================
+
+model Story {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  mediaUrl  String   @map("media_url")
+  mediaType String   // IMAGE, VIDEO
+  caption   String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user  User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  views StoryView[]
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("stories")
+}
+
+model StoryView {
+  id        String   @id @default(uuid())
+  storyId   String   @map("story_id")
+  userId    String   @map("user_id")
+  viewedAt  DateTime @default(now())
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, userId])
+  @@map("story_views")
+}
+
+// ============================================================
+// Segmentos y Live Challenges (Innovaciones)
+// ============================================================
+
+model Segment {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  startCoords Json     // [lat, lng]
+  endCoords   Json     // [lat, lng]
+  polyline    String   @db.Text
+  distanceKm  Float
+  createdAt   DateTime @default(now())
+
+  leaderboards SegmentLeaderboard[]
+
+  @@map("segments")
+}
+
+model SegmentLeaderboard {
+  id         String   @id @default(uuid())
+  segmentId  String   @map("segment_id")
+  userId     String   @map("user_id")
+  activityId String   @map("activity_id")
+  timeSeconds Int
+  date       DateTime
+
+  segment  Segment  @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([segmentId])
+  @@index([userId])
+  @@map("segment_leaderboards")
+}
+
+model LiveChallenge {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  scheduledAt DateTime
+  status      String   // SCHEDULED, IN_PROGRESS, COMPLETED
+  createdAt   DateTime @default(now())
+
+  @@map("live_challenges")
 }

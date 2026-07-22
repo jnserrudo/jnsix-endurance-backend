@@ -1080,12 +1080,12 @@ const createManualActivity = async (req, res) => {
         maxHr: maxHr ? parseInt(maxHr) : null,
         calories: calories ? parseInt(calories) : null,
         mapPolyline: encodedPolyline,
+        visibility: visibility || 'PUBLIC',
         rawData: {
           coordinates: Array.isArray(coordinates) ? coordinates : [],
           extraFields: extraFields || null,
           elapsedTime: parseInt(elapsedTime) || parseInt(movingTime) || 0,
-          cadence: cadence ? parseInt(cadence) : null,
-          visibility: visibility || 'PUBLIC'
+          cadence: cadence ? parseInt(cadence) : null
         },
         isExternal: false,
         laps: {
