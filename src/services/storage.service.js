@@ -25,8 +25,7 @@ class StorageService {
       const absolutePath = path.join(userDir, uniqueName);
       await fs.promises.writeFile(absolutePath, file.buffer);
 
-      const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
-      const publicUrl = `${backendUrl}/uploads/${relativePath}`;
+      const publicUrl = `/uploads/${relativePath}`;
 
       return {
         path: relativePath,
@@ -51,8 +50,7 @@ class StorageService {
 
   async getFileUrl(filePath) {
     try {
-      const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
-      return `${backendUrl}/uploads/${filePath}`;
+      return `/uploads/${filePath}`;
     } catch (error) {
       throw new Error(`Failed to get file URL: ${error.message}`);
     }

@@ -1068,7 +1068,7 @@ const createManualActivity = async (req, res) => {
 
     const activity = await prisma.activity.create({
       data: {
-        userId,
+        user: { connect: { id: userId } },
         name,
         type,
         distanceKm: parseFloat(distanceKm) || 0,
