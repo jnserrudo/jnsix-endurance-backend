@@ -977,7 +977,7 @@ const syncHealthWorkouts = async (req, res) => {
 
       await prisma.activity.create({
         data: {
-          userId,
+          user: { connect: { id: userId } },
           name: w.name,
           type: w.type,
           distanceKm: parseFloat(w.distanceKm) || 0,
