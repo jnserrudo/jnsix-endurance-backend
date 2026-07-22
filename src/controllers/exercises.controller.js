@@ -36,7 +36,8 @@ const listExercises = async (req, res) => {
 
     res.json({ exercises, nextCursor });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -48,7 +49,8 @@ const getExerciseById = async (req, res) => {
     if (!exercise) return res.status(404).json({ error: 'Exercise not found' });
     res.json(exercise);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -66,7 +68,8 @@ const getFilters = async (req, res) => {
       targets: targets.map((t) => t.target)
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -88,7 +91,8 @@ const createExercise = async (req, res) => {
     });
     res.status(201).json(exercise);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -102,7 +106,8 @@ const updateExercise = async (req, res) => {
     });
     res.json(exercise);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -112,7 +117,8 @@ const deleteExercise = async (req, res) => {
     await prisma.exercise.delete({ where: { id } });
     res.json({ message: 'Exercise deleted successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

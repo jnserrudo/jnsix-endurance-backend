@@ -17,7 +17,8 @@ const createSession = async (req, res) => {
     // Add empty sets array since it's a new session
     res.status(201).json({ ...session, sets: [] });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -35,7 +36,8 @@ const listSessions = async (req, res) => {
     const nextCursor = sessions.length === PAGE_SIZE ? sessions[sessions.length - 1].id : null;
     res.json({ sessions, nextCursor });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -53,7 +55,8 @@ const getSessionById = async (req, res) => {
     if (!session) return res.status(404).json({ error: 'Workout session not found' });
     res.json(session);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -91,7 +94,8 @@ const addSet = async (req, res) => {
 
     res.status(201).json(set);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -118,7 +122,8 @@ const completeSession = async (req, res) => {
 
     res.json(updated);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -132,7 +137,8 @@ const deleteSession = async (req, res) => {
     await prisma.workoutSession.delete({ where: { id: session.id } });
     res.json({ message: 'Workout session deleted' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

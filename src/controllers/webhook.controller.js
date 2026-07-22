@@ -7,13 +7,13 @@ const challengesService = require('../services/challenges.service');
 const verifyStravaWebhook = async (req, res) => {
   const { 'hub.mode': mode, 'hub.verify_token': verifyToken, 'hub.challenge': challenge } = req.query;
   
-  console.log('🟡 [STRAVA WEBHOOK] Verificación:', { mode, verifyToken });
+  console.log('[WARN] [STRAVA WEBHOOK] Verificación:', { mode, verifyToken });
   
   // Token de verificación de Strava (debería estar en variables de entorno)
   const STRAVA_VERIFY_TOKEN = process.env.STRAVA_WEBHOOK_VERIFY_TOKEN || 'STRAVA_VERIFY_TOKEN';
   
   if (mode === 'subscribe' && verifyToken === STRAVA_VERIFY_TOKEN) {
-    console.log('✅ [STRAVA WEBHOOK] Verificación exitosa');
+    console.log('[SUCCESS] [STRAVA WEBHOOK] Verificación exitosa');
     return res.status(200).send(challenge);
   }
 
@@ -22,25 +22,25 @@ const verifyStravaWebhook = async (req, res) => {
     return res.status(200).json({ status: 'ok' });
   }
 
-  console.error('🔴 [STRAVA WEBHOOK] Verificación fallida');
+  console.error('[ERROR] [STRAVA WEBHOOK] Verificación fallida');
   return res.status(403).json({ error: 'Verification failed' });
 };
 
 const handleStravaWebhook = async (req, res) => {
   const { object_type, aspect_type, owner_id, object_id, time } = req.body;
   
-  console.log('🟡 [STRAVA WEBHOOK] Evento recibido:', { object_type, aspect_type, owner_id, object_id });
+  console.log('[WARN] [STRAVA WEBHOOK] Evento recibido:', { object_type, aspect_type, owner_id, object_id });
   
   try {
     // Solo procesar eventos de actividad
     if (object_type !== 'activity') {
-      console.log('⚠️ [STRAVA WEBHOOK] Ignorando evento no-activity:', object_type);
+      console.log('[WARN] [STRAVA WEBHOOK] Ignorando evento no-activity:', object_type);
       return res.status(200).json({ status: 'ignored' });
     }
     
     // Solo procesar eventos de creación
     if (aspect_type !== 'create') {
-      console.log('⚠️ [STRAVA WEBHOOK] Ignorando evento no-create:', aspect_type);
+      console.log('[WARN] [STRAVA WEBHOOK] Ignorando evento no-create:', aspect_type);
       return res.status(200).json({ status: 'ignored' });
     }
     
@@ -50,18 +50,18 @@ const handleStravaWebhook = async (req, res) => {
     });
     
     if (!user) {
-      console.log('⚠️ [STRAVA WEBHOOK] Usuario no encontrado para Strava ID:', owner_id);
+      console.log('[WARN] [STRAVA WEBHOOK] Usuario no encontrado para Strava ID:', owner_id);
       return res.status(200).json({ status: 'user_not_found' });
     }
     
-    console.log('✅ [STRAVA WEBHOOK] Usuario encontrado:', user.id);
+    console.log('[SUCCESS] [STRAVA WEBHOOK] Usuario encontrado:', user.id);
 
     // Check if activity already exists (Strava can send duplicate webhooks)
     const existingActivity = await prisma.activity.findUnique({
       where: { stravaId: object_id.toString() }
     });
     if (existingActivity) {
-      console.log('⚠️ [STRAVA WEBHOOK] Actividad ya existe, ignorando:', object_id);
+      console.log('[WARN] [STRAVA WEBHOOK] Actividad ya existe, ignorando:', object_id);
       return res.status(200).json({ status: 'already_exists' });
     }
 
@@ -69,7 +69,7 @@ const handleStravaWebhook = async (req, res) => {
     let accessToken = user.stravaAccessToken;
     if (user.stravaTokenExpiry && new Date(user.stravaTokenExpiry) <= new Date()) {
       try {
-        console.log('🔵 [STRAVA WEBHOOK] Token expirado, refrescando...');
+        console.log('[DEBUG] [STRAVA WEBHOOK] Token expirado, refrescando...');
         const refreshed = await stravaService.refreshToken(user.stravaRefreshToken);
         accessToken = refreshed.access_token;
         await prisma.user.update({
@@ -81,7 +81,7 @@ const handleStravaWebhook = async (req, res) => {
           }
         });
       } catch (refreshErr) {
-        console.error('🔴 [STRAVA WEBHOOK] Error refrescando token:', refreshErr.message);
+        console.error('[ERROR] [STRAVA WEBHOOK] Error refrescando token:', refreshErr.message);
         return res.status(200).json({ status: 'token_refresh_failed' });
       }
     }
@@ -157,13 +157,14 @@ const handleStravaWebhook = async (req, res) => {
         console.error('[Challenges] Failed to update progress from webhook:', err.message);
       });
       
-      console.log('✅ [STRAVA WEBHOOK] Actividad sincronizada:', object_id);
+      console.log('[SUCCESS] [STRAVA WEBHOOK] Actividad sincronizada:', object_id);
     }
     
     res.status(200).json({ status: 'success' });
   } catch (error) {
-    console.error('🔴 [STRAVA WEBHOOK] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [STRAVA WEBHOOK] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

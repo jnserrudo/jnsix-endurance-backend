@@ -52,7 +52,8 @@ const searchUsers = async (req, res) => {
 
     res.json(usersWithStatus);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -95,7 +96,8 @@ const sendRequest = async (req, res) => {
 
     res.status(201).json(friendship);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -129,7 +131,8 @@ const respondRequest = async (req, res) => {
 
     res.json(updated);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -153,7 +156,8 @@ const listFriends = async (req, res) => {
     const friends = friendships.map((f) => (f.userId === userId ? f.friend : f.user));
     res.json(friends);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -168,7 +172,8 @@ const listPendingRequests = async (req, res) => {
 
     res.json(pending);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -194,7 +199,8 @@ const removeFriend = async (req, res) => {
     await prisma.friendship.delete({ where: { id: friendship.id } });
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

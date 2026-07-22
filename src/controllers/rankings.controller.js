@@ -93,7 +93,8 @@ const getGlobalRankings = async (req, res) => {
     const paginated = rankings.slice(start, start + parseInt(limit));
     res.json({ rankings: paginated, total: rankings.length });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -115,7 +116,8 @@ const getFriendsRankings = async (req, res) => {
     const rankings = await buildRankingsQuery({ scope: 'friends', friendIds, period });
     res.json({ rankings });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -127,7 +129,8 @@ const getGroupRankings = async (req, res) => {
     const rankings = await buildRankingsQuery({ scope: 'group', scopeId: id, period });
     res.json({ rankings });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -139,7 +142,8 @@ const getCommunityRankings = async (req, res) => {
     const rankings = await buildRankingsQuery({ scope: 'community', scopeId: id, period });
     res.json({ rankings });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -161,7 +165,8 @@ const getUserScore = async (req, res) => {
 
     res.json(score);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

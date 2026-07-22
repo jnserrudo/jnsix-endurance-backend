@@ -9,7 +9,8 @@ const getNotifications = async (req, res) => {
     });
     res.json(notifications);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -22,7 +23,8 @@ const markAsRead = async (req, res) => {
     });
     res.json(notification);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -34,7 +36,8 @@ const markAllAsRead = async (req, res) => {
     });
     res.json({ message: 'All notifications marked as read' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

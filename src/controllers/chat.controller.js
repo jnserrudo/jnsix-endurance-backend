@@ -53,7 +53,8 @@ const listRooms = async (req, res) => {
 
     res.json(rooms);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -112,7 +113,8 @@ const getOrCreateDirectRoom = async (req, res) => {
 
     res.status(201).json(room);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -177,7 +179,8 @@ const getOrCreateGroupRoom = async (req, res) => {
 
     res.status(201).json(room);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -241,7 +244,8 @@ const getOrCreateCommunityRoom = async (req, res) => {
 
     res.status(201).json(room);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -284,7 +288,8 @@ const getMessages = async (req, res) => {
       nextCursor
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -300,7 +305,8 @@ const markAsRead = async (req, res) => {
 
     res.json({ message: 'Marked as read' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

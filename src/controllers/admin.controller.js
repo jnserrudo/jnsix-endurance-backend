@@ -19,7 +19,8 @@ const getStats = async (req, res) => {
       totalRevenue: transactions._sum.amount || 0
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -61,7 +62,8 @@ const listUsers = async (req, res) => {
 
     res.json({ users, total, page: parseInt(page), limit: parseInt(limit) });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -77,7 +79,8 @@ const getUserDetails = async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -110,7 +113,8 @@ const createUser = async (req, res) => {
 
     res.status(201).json(user);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -149,7 +153,8 @@ const editUser = async (req, res) => {
 
     res.json(user);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -171,7 +176,8 @@ const deleteUser = async (req, res) => {
 
     res.json({ message: 'User deleted successfully', user });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -183,7 +189,8 @@ const banUser = async (req, res) => {
     });
     res.json(user);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -195,7 +202,8 @@ const restoreUser = async (req, res) => {
     });
     res.json(user);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -210,7 +218,8 @@ const listRoles = async (req, res) => {
     });
     res.json(roles);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -234,7 +243,8 @@ const createRole = async (req, res) => {
     });
     res.status(201).json(role);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -263,7 +273,8 @@ const editRole = async (req, res) => {
     });
     res.json(role);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -279,7 +290,8 @@ const deleteRole = async (req, res) => {
     });
     res.json({ message: 'Role deleted' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -288,7 +300,8 @@ const listPermissions = async (req, res) => {
     const permissions = await prisma.permission.findMany();
     res.json(permissions);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -300,7 +313,8 @@ const listFeatureFlags = async (req, res) => {
     const flags = await prisma.featureFlag.findMany();
     res.json(flags);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -313,7 +327,8 @@ const toggleFeatureFlag = async (req, res) => {
     });
     res.json(flag);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -328,7 +343,8 @@ const listPlans = async (req, res) => {
     });
     res.json(plans);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -352,7 +368,8 @@ const createPlan = async (req, res) => {
     });
     res.status(201).json(plan);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -381,7 +398,8 @@ const editPlan = async (req, res) => {
     });
     res.json(plan);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -393,7 +411,8 @@ const disablePlan = async (req, res) => {
     });
     res.json(plan);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -405,7 +424,8 @@ const listRanks = async (req, res) => {
     const ranks = await prisma.rank.findMany({ where: { deletedAt: null }, orderBy: { order: 'asc' } });
     res.json(ranks);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -414,7 +434,8 @@ const createRank = async (req, res) => {
     const rank = await prisma.rank.create({ data: req.body });
     res.status(201).json(rank);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -426,7 +447,8 @@ const editRank = async (req, res) => {
     });
     res.json(rank);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -435,7 +457,8 @@ const listCategories = async (req, res) => {
     const categories = await prisma.category.findMany({ where: { deletedAt: null } });
     res.json(categories);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -444,7 +467,8 @@ const createCategory = async (req, res) => {
     const category = await prisma.category.create({ data: req.body });
     res.status(201).json(category);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -462,7 +486,8 @@ const editCategory = async (req, res) => {
     
     res.json(category);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -477,7 +502,8 @@ const deleteRank = async (req, res) => {
     });
     res.json({ message: 'Rank deleted', rank });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -492,7 +518,8 @@ const deleteCategory = async (req, res) => {
     });
     res.json({ message: 'Category deleted', category });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -521,7 +548,8 @@ const listAuditLogs = async (req, res) => {
 
     res.json({ logs, total, page: parseInt(page), limit: parseInt(limit) });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -534,7 +562,8 @@ const getAuditLogDetails = async (req, res) => {
     if (!log) return res.status(404).json({ error: 'Audit log not found' });
     res.json(log);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -557,7 +586,8 @@ const deletePost = async (req, res) => {
     });
     res.json({ message: 'Post deleted successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -580,7 +610,8 @@ const deleteGroup = async (req, res) => {
     });
     res.json({ message: 'Group deleted successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -608,7 +639,8 @@ const listAdminExercises = async (req, res) => {
 
     res.json({ exercises, total, page: parseInt(page), limit: parseInt(limit) });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -620,7 +652,8 @@ const createExercise = async (req, res) => {
     });
     res.status(201).json(exercise);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -633,7 +666,8 @@ const editExercise = async (req, res) => {
     });
     res.json(exercise);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -645,7 +679,8 @@ const deleteExercise = async (req, res) => {
     });
     res.json({ message: 'Exercise deleted successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

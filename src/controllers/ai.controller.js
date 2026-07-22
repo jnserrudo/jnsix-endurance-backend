@@ -82,7 +82,8 @@ const generateTrainingPlan = async (req, res) => {
 
     res.json(analysis);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -139,7 +140,8 @@ Incluye:
 
     res.json(analysis);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -248,7 +250,8 @@ IMPORTANTE: Si el usuario corre a ${currentPace.toFixed(2)} min/km, NO puede cor
 
     res.json(analysis);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -304,7 +307,8 @@ const getAnalysisHistory = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -346,7 +350,8 @@ const getUsageStats = async (req, res) => {
       recentAnalyses
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -420,7 +425,8 @@ Proporciona:
 
     res.json(analysis);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -487,7 +493,8 @@ Proporciona:
 
     res.json(analysis);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -554,7 +561,8 @@ Proporciona:
 
     res.json(analysis);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -615,7 +623,8 @@ Proporciona respuestas cortas, directas y formateadas en Markdown claras y legib
     res.json({ response: result.response });
   } catch (error) {
     console.error('Error in chatWithCoach:', error);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -740,8 +749,9 @@ Por favor, estructura tu reporte en las siguientes secciones exactas y legibles 
 
     res.json(analysis);
   } catch (error) {
-    console.error('🔴 [ANALYZE COMPETITION AI] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [ANALYZE COMPETITION AI] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -799,7 +809,8 @@ const suggestComplementaryExercises = async (req, res) => {
       exercises
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

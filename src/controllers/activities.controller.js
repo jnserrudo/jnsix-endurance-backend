@@ -14,7 +14,7 @@ const ensureValidStravaToken = async (user) => {
     (new Date(user.stravaTokenExpiry).getTime() - Date.now() < 5 * 60 * 1000);
   
   if (isExpired && user.stravaRefreshToken) {
-    console.log(`🔵 Refrescando token de Strava para usuario ${user.id}...`);
+    console.log(`[DEBUG] Refrescando token de Strava para usuario ${user.id}...`);
     const refreshData = await stravaService.refreshToken(user.stravaRefreshToken);
     
     const updatedUser = await prisma.user.update({
@@ -73,7 +73,7 @@ const getActivities = async (req, res) => {
     });
 
     const total = await prisma.activity.count({ where });
-    console.log('✅ [GET ACTIVITIES] Encontradas:', total, 'actividades');
+    console.log('[SUCCESS] [GET ACTIVITIES] Encontradas:', total, 'actividades');
 
     res.json({
       activities,
@@ -85,8 +85,9 @@ const getActivities = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('🔴 [GET ACTIVITIES] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [GET ACTIVITIES] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -121,7 +122,7 @@ const getActivityById = async (req, res) => {
     // Si es una actividad de Strava y no tiene laps en la base de datos, intentar sincronizar detalles on-demand
     if (activity.stravaId && activity.laps.length === 0 && activity.user?.stravaAccessToken) {
       try {
-        console.log(`🔵 [GET DETAIL] Sincronizando detalles de Strava para actividad ${id}...`);
+        console.log(`[DEBUG] [GET DETAIL] Sincronizando detalles de Strava para actividad ${id}...`);
         let accessToken = activity.user.stravaAccessToken;
         const user = activity.user;
         
@@ -130,7 +131,7 @@ const getActivityById = async (req, res) => {
           (new Date(user.stravaTokenExpiry).getTime() - Date.now() < 5 * 60 * 1000);
         
         if (isExpired && user.stravaRefreshToken) {
-          console.log('🔵 [GET DETAIL] Token de Strava expirado. Refrescando...');
+          console.log('[DEBUG] [GET DETAIL] Token de Strava expirado. Refrescando...');
           const refreshData = await stravaService.refreshToken(user.stravaRefreshToken);
           
           const updatedUser = await prisma.user.update({
@@ -212,16 +213,17 @@ const getActivityById = async (req, res) => {
               }
             }
           });
-          console.log(`✅ [GET DETAIL] Actividad ${id} sincronizada con detalles de Strava y ${lapsToCreate.length} laps.`);
+          console.log(`[SUCCESS] [GET DETAIL] Actividad ${id} sincronizada con detalles de Strava y ${lapsToCreate.length} laps.`);
         }
       } catch (syncError) {
-        console.error(`🔴 [GET DETAIL] Error al sincronizar detalles de Strava:`, syncError.message);
+        console.error(`[ERROR] [GET DETAIL] Error al sincronizar detalles de Strava:`, syncError.message);
       }
     }
 
     res.json(activity);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -260,7 +262,8 @@ const createActivity = async (req, res) => {
 
     res.status(201).json(activity);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -325,7 +328,8 @@ const uploadActivity = async (req, res) => {
 
     res.status(201).json(activity);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -416,7 +420,8 @@ const importFromLink = async (req, res) => {
 
     res.status(201).json(activity);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -443,7 +448,8 @@ const getSharedActivity = async (req, res) => {
 
     res.json(activity);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -475,7 +481,8 @@ const shareActivity = async (req, res) => {
       shareUrl
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -508,7 +515,8 @@ const updateActivity = async (req, res) => {
 
     res.json(updatedActivity);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -540,7 +548,8 @@ const deleteActivity = async (req, res) => {
 
     res.json({ message: 'Activity deleted successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -565,7 +574,7 @@ const mapStravaTypeToActivityType = (stravaType) => {
 
 const syncStravaActivities = async (req, res) => {
   try {
-    console.log('🔵 [SYNC STRAVA] Iniciando sincronización...');
+    console.log('[DEBUG] [SYNC STRAVA] Iniciando sincronización...');
     const userId = req.user.id;
 
     // Obtener el usuario con sus tokens de Strava y lastSyncDate
@@ -574,7 +583,7 @@ const syncStravaActivities = async (req, res) => {
     });
 
     if (!user.stravaAccessToken) {
-      console.log('🔴 [SYNC STRAVA] Usuario no conectado a Strava');
+      console.log('[ERROR] [SYNC STRAVA] Usuario no conectado a Strava');
       return res.status(400).json({ error: 'No estás conectado a Strava' });
     }
 
@@ -583,9 +592,9 @@ const syncStravaActivities = async (req, res) => {
     const afterDate = user.lastSyncDate ? new Date(user.lastSyncDate) : null;
     
     if (isIncremental) {
-      console.log(`🔵 [SYNC STRAVA] Sincronización incremental desde: ${afterDate.toISOString()}`);
+      console.log(`[DEBUG] [SYNC STRAVA] Sincronización incremental desde: ${afterDate.toISOString()}`);
     } else {
-      console.log('🔵 [SYNC STRAVA] Sincronización completa (todas las actividades)');
+      console.log('[DEBUG] [SYNC STRAVA] Sincronización completa (todas las actividades)');
     }
     
     let allActivities = [];
@@ -595,7 +604,7 @@ const syncStravaActivities = async (req, res) => {
 
     // Obtener actividades paginadas
     while (hasMore) {
-      console.log(`🔵 [SYNC STRAVA] Obteniendo página ${page}...`);
+      console.log(`[DEBUG] [SYNC STRAVA] Obteniendo página ${page}...`);
       
       const pageActivities = await stravaService.getActivities(
         user.stravaAccessToken,
@@ -608,7 +617,7 @@ const syncStravaActivities = async (req, res) => {
         hasMore = false;
       } else {
         allActivities = allActivities.concat(pageActivities);
-        console.log(`✅ [SYNC STRAVA] Página ${page}: ${pageActivities.length} actividades`);
+        console.log(`[SUCCESS] [SYNC STRAVA] Página ${page}: ${pageActivities.length} actividades`);
         page++;
         
         // Si obtuvimos menos de perPage, es la última página
@@ -623,25 +632,25 @@ const syncStravaActivities = async (req, res) => {
       }
     }
 
-    console.log(`🔵 [SYNC STRAVA] Total de actividades obtenidas: ${allActivities.length}`);
+    console.log(`[DEBUG] [SYNC STRAVA] Total de actividades obtenidas: ${allActivities.length}`);
 
     // Obtener todos los stravaIds existentes en una sola query
-    console.log('🔵 [SYNC STRAVA] Verificando actividades existentes...');
+    console.log('[DEBUG] [SYNC STRAVA] Verificando actividades existentes...');
     const existingActivities = await prisma.activity.findMany({
       where: { userId },
       select: { stravaId: true }
     });
     const existingStravaIds = new Set(existingActivities.map(a => a.stravaId));
-    console.log(`✅ [SYNC STRAVA] ${existingStravaIds.size} actividades ya existen`);
+    console.log(`[SUCCESS] [SYNC STRAVA] ${existingStravaIds.size} actividades ya existen`);
 
     // Filtrar solo actividades nuevas
     const newActivities = allActivities.filter(
       activity => !existingStravaIds.has(activity.id.toString())
     );
-    console.log(`🔵 [SYNC STRAVA] ${newActivities.length} actividades nuevas para importar`);
+    console.log(`[DEBUG] [SYNC STRAVA] ${newActivities.length} actividades nuevas para importar`);
 
     if (newActivities.length === 0) {
-      console.log('✅ [SYNC STRAVA] No hay actividades nuevas');
+      console.log('[SUCCESS] [SYNC STRAVA] No hay actividades nuevas');
       return res.json({
         message: 'No hay actividades nuevas',
         created: 0,
@@ -657,7 +666,7 @@ const syncStravaActivities = async (req, res) => {
     for (let i = 0; i < newActivities.length; i += batchSize) {
       batches.push(newActivities.slice(i, i + batchSize));
     }
-    console.log(`🔵 [SYNC STRAVA] Procesando ${batches.length} batches de ${batchSize} actividades...`);
+    console.log(`[DEBUG] [SYNC STRAVA] Procesando ${batches.length} batches de ${batchSize} actividades...`);
 
     let created = 0;
     let skipped = existingStravaIds.size;
@@ -691,15 +700,15 @@ const syncStravaActivities = async (req, res) => {
         });
 
         created += batch.length;
-        console.log(`✅ [SYNC STRAVA] Batch ${batchIndex + 1}/${batches.length}: ${batch.length} actividades creadas (Total: ${created})`);
+        console.log(`[SUCCESS] [SYNC STRAVA] Batch ${batchIndex + 1}/${batches.length}: ${batch.length} actividades creadas (Total: ${created})`);
       } catch (err) {
-        console.error(`🔴 [SYNC STRAVA] Error en batch ${batchIndex + 1}:`, err.message);
+        console.error(`[ERROR] [SYNC STRAVA] Error en batch ${batchIndex + 1}:`, err.message);
         errors += batch.length;
       }
     }
 
-    console.log('✅ [SYNC STRAVA] Sincronización completada');
-    console.log(`✅ [SYNC STRAVA] Creadas: ${created} | Omitidas: ${skipped} | Errores: ${errors}`);
+    console.log('[SUCCESS] [SYNC STRAVA] Sincronización completada');
+    console.log(`[SUCCESS] [SYNC STRAVA] Creadas: ${created} | Omitidas: ${skipped} | Errores: ${errors}`);
 
     // Actualizar lastSyncDate del usuario
     if (created > 0) {
@@ -707,7 +716,7 @@ const syncStravaActivities = async (req, res) => {
         where: { id: userId },
         data: { lastSyncDate: new Date() }
       });
-      console.log('✅ [SYNC STRAVA] lastSyncDate actualizado');
+      console.log('[SUCCESS] [SYNC STRAVA] lastSyncDate actualizado');
 
       scoringService.batchScoreActivities(userId).catch((err) => {
         console.error('[Scoring] Failed to batch score synced activities:', err.message);
@@ -727,15 +736,16 @@ const syncStravaActivities = async (req, res) => {
       isIncremental
     });
   } catch (error) {
-    console.error('🔴 [SYNC STRAVA] Error:', error.message);
-    console.error('🔴 [SYNC STRAVA] Stack:', error.stack);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [SYNC STRAVA] Error:', error.message);
+    console.error('[ERROR] [SYNC STRAVA] Stack:', error.stack);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
 const checkNewActivities = async (req, res) => {
   try {
-    console.log('🔵 [CHECK NEW] Verificando nuevas actividades...');
+    console.log('[DEBUG] [CHECK NEW] Verificando nuevas actividades...');
     const userId = req.user.id;
 
     // Obtener el usuario con sus tokens de Strava y lastSyncDate
@@ -744,14 +754,14 @@ const checkNewActivities = async (req, res) => {
     });
 
     if (!user || !user.stravaAccessToken) {
-      console.log('🔴 [CHECK NEW] Usuario no conectado a Strava');
+      console.log('[ERROR] [CHECK NEW] Usuario no conectado a Strava');
       return res.json({ hasNew: false, count: 0, message: 'No conectado a Strava' });
     }
 
     const validToken = await ensureValidStravaToken(user);
 
     if (!user.lastSyncDate) {
-      console.log('🔵 [CHECK NEW] Primera sincronización - todas las actividades son nuevas');
+      console.log('[DEBUG] [CHECK NEW] Primera sincronización - todas las actividades son nuevas');
       // Obtener solo la primera página para estimar
       const pageActivities = await stravaService.getActivities(
         validToken,
@@ -769,7 +779,7 @@ const checkNewActivities = async (req, res) => {
 
     // Obtener actividades después de lastSyncDate (solo primera página para verificar)
     const afterDate = new Date(user.lastSyncDate);
-    console.log(`🔵 [CHECK NEW] Verificando actividades después de: ${afterDate.toISOString()}`);
+    console.log(`[DEBUG] [CHECK NEW] Verificando actividades después de: ${afterDate.toISOString()}`);
     
     const newActivities = await stravaService.getActivities(
       validToken,
@@ -778,7 +788,7 @@ const checkNewActivities = async (req, res) => {
       afterDate
     );
 
-    console.log(`✅ [CHECK NEW] Encontradas: ${newActivities.length} actividades nuevas`);
+    console.log(`[SUCCESS] [CHECK NEW] Encontradas: ${newActivities.length} actividades nuevas`);
 
     res.json({
       hasNew: newActivities.length > 0,
@@ -787,8 +797,9 @@ const checkNewActivities = async (req, res) => {
       lastSyncDate: user.lastSyncDate
     });
   } catch (error) {
-    console.error('🔴 [CHECK NEW] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [CHECK NEW] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -815,8 +826,9 @@ const createSyncJob = async (req, res) => {
     
     res.json({ jobId, status: 'created' });
   } catch (error) {
-    console.error('🔴 [CREATE SYNC JOB] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [CREATE SYNC JOB] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -832,8 +844,9 @@ const getSyncJobStatus = async (req, res) => {
     
     res.json(job);
   } catch (error) {
-    console.error('🔴 [GET SYNC JOB] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [GET SYNC JOB] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -926,8 +939,9 @@ const getDashboardMetrics = async (req, res) => {
       } : { points: 0, rankName: 'Novato', iconUrl: null }
     });
   } catch (error) {
-    console.error('🔴 [GET DASHBOARD METRICS] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [GET DASHBOARD METRICS] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -993,8 +1007,9 @@ const syncHealthWorkouts = async (req, res) => {
 
     res.json({ success: true, count });
   } catch (error) {
-    console.error('🔴 [SYNC HEALTH WORKOUTS] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [SYNC HEALTH WORKOUTS] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -1059,20 +1074,20 @@ const createManualActivity = async (req, res) => {
         distanceKm: parseFloat(distanceKm) || 0,
         elevationM: parseFloat(elevationM) || 0,
         movingTime: parseInt(movingTime) || 0,
-        elapsedTime: parseInt(elapsedTime) || parseInt(movingTime) || 0,
         startDate: new Date(startDate),
         description: description || null,
         averageHr: averageHr ? parseInt(averageHr) : null,
         maxHr: maxHr ? parseInt(maxHr) : null,
         calories: calories ? parseInt(calories) : null,
-        cadence: cadence ? parseInt(cadence) : null,
         mapPolyline: encodedPolyline,
         rawData: {
           coordinates: Array.isArray(coordinates) ? coordinates : [],
-          extraFields: extraFields || null
+          extraFields: extraFields || null,
+          elapsedTime: parseInt(elapsedTime) || parseInt(movingTime) || 0,
+          cadence: cadence ? parseInt(cadence) : null,
+          visibility: visibility || 'PUBLIC'
         },
         isExternal: false,
-        visibility: visibility || 'PUBLIC',
         laps: {
           create: Array.isArray(laps) && laps.length > 0
             ? laps.map((lap, index) => ({
@@ -1095,8 +1110,9 @@ const createManualActivity = async (req, res) => {
 
     res.status(201).json(activity);
   } catch (error) {
-    console.error('🔴 [CREATE MANUAL ACTIVITY] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [CREATE MANUAL ACTIVITY] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -1143,8 +1159,9 @@ const uploadActivityPhotos = async (req, res) => {
 
     res.status(201).json({ message: 'Fotos subidas exitosamente', photos: newPhotos });
   } catch (error) {
-    console.error('🔴 [UPLOAD ACTIVITY PHOTOS] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [UPLOAD ACTIVITY PHOTOS] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

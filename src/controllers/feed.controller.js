@@ -43,7 +43,7 @@ const getFeed = async (req, res) => {
         ...searchFilter
       },
       orderBy: { startDate: 'desc' },
-      take: PAGE_SIZE,
+      take: skip + PAGE_SIZE,
       include: {
         user: { select: { id: true, email: true } },
         _count: { select: { comments: true } }
@@ -62,7 +62,7 @@ const getFeed = async (req, res) => {
         ]
       },
       orderBy: { createdAt: 'desc' },
-      take: PAGE_SIZE,
+      take: skip + PAGE_SIZE,
       include: {
         user: { select: { id: true, email: true } },
         activity: { select: { id: true, name: true } },
@@ -132,7 +132,8 @@ const getFeed = async (req, res) => {
 
     res.json({ feed: combined });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -161,7 +162,8 @@ const createPost = async (req, res) => {
 
     res.status(201).json(post);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -184,7 +186,8 @@ const listComments = async (req, res) => {
 
     res.json(comments);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -229,7 +232,8 @@ const createComment = async (req, res) => {
 
     res.status(201).json(comment);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -244,7 +248,8 @@ const listReactions = async (req, res) => {
 
     res.json(reactions);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -294,7 +299,8 @@ const toggleReaction = async (req, res) => {
 
     res.status(201).json(reaction);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -320,7 +326,8 @@ const updatePost = async (req, res) => {
 
     res.json(updated);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -343,7 +350,8 @@ const deletePost = async (req, res) => {
 
     res.json({ success: true, message: 'Post deleted' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -369,7 +377,8 @@ const updateComment = async (req, res) => {
 
     res.json(updated);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -392,7 +401,8 @@ const deleteComment = async (req, res) => {
 
     res.json({ success: true, message: 'Comment deleted' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

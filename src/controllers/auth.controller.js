@@ -16,7 +16,7 @@ const generateToken = (userId, email, role) => {
 
 const register = async (req, res) => {
   try {
-    console.log('🟢 [REGISTER] Intento de registro:', req.body.email);
+    console.log('[INFO] [REGISTER] Intento de registro:', req.body.email);
     const { email, password, username } = req.body;
 
     if (!email || !password) {
@@ -50,7 +50,7 @@ const register = async (req, res) => {
         role: 'ATHLETE'
       }
     });
-    console.log('✅ [REGISTER] Usuario creado exitosamente:', user.id);
+    console.log('[SUCCESS] [REGISTER] Usuario creado exitosamente:', user.id);
 
     // Create 6-digit OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -67,7 +67,7 @@ const register = async (req, res) => {
       const nombre = user.email.split('@')[0];
       await emailService.sendVerificationOTP(user.email, otpCode, nombre);
     } catch (mailErr) {
-      console.error('🔴 [REGISTER] Error enviando email de verificación:', mailErr.message);
+      console.error('[ERROR] [REGISTER] Error enviando email de verificación:', mailErr.message);
     }
 
     const token = generateToken(user.id, user.email, user.role);
@@ -92,13 +92,14 @@ const register = async (req, res) => {
       message: 'Registration successful. Please check your email to verify your account.'
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
 const login = async (req, res) => {
   try {
-    console.log('🟢 [LOGIN] Intento de login:', req.body.email);
+    console.log('[INFO] [LOGIN] Intento de login:', req.body.email);
     const { email, password } = req.body; // email field may contain username or email
     const identifier = email;
 
@@ -127,7 +128,7 @@ const login = async (req, res) => {
     }
 
     const token = generateToken(user.id, user.email, user.role);
-    console.log('✅ [LOGIN] Login exitoso:', user.email);
+    console.log('[SUCCESS] [LOGIN] Login exitoso:', user.email);
 
     res.json({
       user: {
@@ -159,38 +160,40 @@ const login = async (req, res) => {
       token
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
 const stravaAuth = async (req, res) => {
   try {
-    console.log('🔵 [STRAVA AUTH] Iniciando autorización con Strava');
+    console.log('[DEBUG] [STRAVA AUTH] Iniciando autorización con Strava');
     const state = req.query.state || Math.random().toString(36).substring(7);
     const authUrl = stravaService.getAuthorizationUrl(state);
-    console.log('🔵 [STRAVA AUTH] URL generada:', authUrl);
+    console.log('[DEBUG] [STRAVA AUTH] URL generada:', authUrl);
     
     res.json({ authUrl });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
 const stravaCallback = async (req, res) => {
   try {
-    console.log('🔵 [STRAVA CALLBACK] Recibiendo callback de Strava');
+    console.log('[DEBUG] [STRAVA CALLBACK] Recibiendo callback de Strava');
     const { code, state } = req.query;
-    console.log('🔵 [STRAVA CALLBACK] Code:', code ? 'Recibido' : 'No recibido', 'State:', state);
+    console.log('[DEBUG] [STRAVA CALLBACK] Code:', code ? 'Recibido' : 'No recibido', 'State:', state);
 
     if (!code) {
-      console.error('🔴 [STRAVA CALLBACK] Error: No se recibió código');
+      console.error('[ERROR] [STRAVA CALLBACK] Error: No se recibió código');
       return res.status(400).json({ error: 'Falta el código de autorización de Strava.' });
     }
 
-    console.log('🔵 [STRAVA CALLBACK] Intercambiando código por token...');
+    console.log('[DEBUG] [STRAVA CALLBACK] Intercambiando código por token...');
     const tokenData = await stravaService.exchangeToken(code);
     const athlete = tokenData.athlete;
-    console.log('🔵 [STRAVA CALLBACK] Atleta:', athlete.id, athlete.firstname, athlete.lastname);
+    console.log('[DEBUG] [STRAVA CALLBACK] Atleta:', athlete.id, athlete.firstname, athlete.lastname);
 
     let user = await prisma.user.findUnique({
       where: { stravaId: athlete.id.toString() }
@@ -219,7 +222,7 @@ const stravaCallback = async (req, res) => {
     }
 
     const token = generateToken(user.id, user.email, user.role);
-    console.log('✅ [STRAVA CALLBACK] Token JWT generado para usuario:', user.id);
+    console.log('[SUCCESS] [STRAVA CALLBACK] Token JWT generado para usuario:', user.id);
 
     let redirectUrl;
     if (state && state.startsWith('mobile_')) {
@@ -230,11 +233,11 @@ const stravaCallback = async (req, res) => {
       redirectUrl = `${frontendUrl}/auth/callback?token=${token}`;
     }
     
-    console.log('🔵 [STRAVA CALLBACK] Redirigiendo a:', redirectUrl);
+    console.log('[DEBUG] [STRAVA CALLBACK] Redirigiendo a:', redirectUrl);
     res.redirect(redirectUrl);
   } catch (error) {
-    console.error('🔴 [STRAVA CALLBACK] Error:', error.message);
-    console.error('🔴 [STRAVA CALLBACK] Stack:', error.stack);
+    console.error('[ERROR] [STRAVA CALLBACK] Error:', error.message);
+    console.error('[ERROR] [STRAVA CALLBACK] Stack:', error.stack);
     
     const { state } = req.query;
     let errorRedirectUrl;
@@ -271,13 +274,14 @@ const refreshToken = async (req, res) => {
 
     res.json({ token: newToken });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
 const getCurrentUser = async (req, res) => {
   try {
-    console.log('🟢 [GET CURRENT USER] Usuario ID:', req.user.id);
+    console.log('[INFO] [GET CURRENT USER] Usuario ID:', req.user.id);
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {
@@ -313,18 +317,19 @@ const getCurrentUser = async (req, res) => {
       return res.status(404).json({ error: 'No hemos podido encontrar tu cuenta.' });
     }
 
-    console.log('✅ [GET CURRENT USER] Usuario encontrado:', user.email, 'StravaId:', user.stravaId);
+    console.log('[SUCCESS] [GET CURRENT USER] Usuario encontrado:', user.email, 'StravaId:', user.stravaId);
     res.json(user);
   } catch (error) {
-    console.error('🔴 [GET CURRENT USER] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [GET CURRENT USER] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
 const disconnectStrava = async (req, res) => {
   try {
     const userId = req.user.id;
-    console.log('🟢 [DISCONNECT STRAVA] Usuario ID:', userId);
+    console.log('[INFO] [DISCONNECT STRAVA] Usuario ID:', userId);
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
@@ -344,11 +349,12 @@ const disconnectStrava = async (req, res) => {
       }
     });
 
-    console.log('✅ [DISCONNECT STRAVA] Strava desconectado para:', updatedUser.email);
+    console.log('[SUCCESS] [DISCONNECT STRAVA] Strava desconectado para:', updatedUser.email);
     res.json(updatedUser);
   } catch (error) {
-    console.error('🔴 [DISCONNECT STRAVA] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [DISCONNECT STRAVA] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -390,13 +396,14 @@ const verifyEmail = async (req, res) => {
         const nombre = user.email.split('@')[0];
         await emailService.sendWelcomeEmail(user.email, nombre);
       } catch (mailErr) {
-        console.error('🔴 [VERIFY] Error enviando email de bienvenida:', mailErr.message);
+        console.error('[ERROR] [VERIFY] Error enviando email de bienvenida:', mailErr.message);
       }
     }
 
     res.json({ message: 'Email verified successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -426,12 +433,13 @@ const resendVerification = async (req, res) => {
       const nombre = user.email.split('@')[0];
       await emailService.sendVerificationOTP(user.email, otpCode, nombre);
     } catch (mailErr) {
-      console.error('🔴 [RESEND_VERIFICATION] Error enviando email:', mailErr.message);
+      console.error('[ERROR] [RESEND_VERIFICATION] Error enviando email:', mailErr.message);
     }
 
     res.json({ message: 'Verification OTP sent' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -443,7 +451,8 @@ const registerPushToken = async (req, res) => {
     await pushService.registerPushToken(req.user.id, token, device);
     res.json({ message: 'Push token registered' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -455,7 +464,8 @@ const removePushToken = async (req, res) => {
     await pushService.removePushToken(token);
     res.json({ message: 'Push token removed' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

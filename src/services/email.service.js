@@ -101,7 +101,7 @@ const sendWelcomeEmail = async (email, nombre) => {
   const text = `Hola ${nombre}, tu cuenta ha sido verificada con éxito. ¡A entrenar!`;
   const html = `
     <div style="font-family: Arial, sans-serif; background-color: #1a1a1a; color: #ffffff; padding: 30px; text-align: center;">
-      <h1 style="color: #4CAF50;">¡Cuenta Verificada! 🏃‍♂️</h1>
+      <h1 style="color: #4CAF50;">¡Cuenta Verificada!</h1>
       <p style="font-size: 16px;">Hola ${nombre}, tu cuenta ha sido configurada y verificada exitosamente.</p>
       <a href="${FRONTEND_URL}/dashboard" style="display: inline-block; margin: 30px 0; padding: 15px 30px; background-color: #4CAF50; color: #fff; text-decoration: none; border-radius: 5px; font-weight: bold;">
         Ir a mi Dashboard
@@ -112,11 +112,11 @@ const sendWelcomeEmail = async (email, nombre) => {
 };
 
 const sendAdminAlert = async (emails, data) => {
-  const subject = `⚠️ ALERTA DEL SISTEMA: ${data.alertType}`;
+  const subject = `[WARN] ALERTA DEL SISTEMA: ${data.alertType}`;
   const text = `Alerta: ${data.alertType} - Detalles: ${data.details}`;
   const html = `
     <div style="font-family: Arial, sans-serif; background-color: #1a1a1a; color: #ffffff; padding: 30px;">
-      <h1 style="color: #F44336; border-bottom: 2px solid #F44336; padding-bottom: 10px;">⚠️ ALERTA: ${data.alertType}</h1>
+      <h1 style="color: #F44336; border-bottom: 2px solid #F44336; padding-bottom: 10px;">[WARN] ALERTA: ${data.alertType}</h1>
       <p style="font-size: 16px;">Se ha detectado un evento que requiere atención:</p>
       <ul style="background-color: #333; padding: 20px; border-radius: 5px; list-style-type: none;">
         <li style="margin-bottom: 10px;"><strong>Fecha:</strong> ${new Date().toISOString()}</li>

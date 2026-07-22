@@ -47,7 +47,8 @@ const createChallenge = async (req, res) => {
 
     res.status(201).json(challenge);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -78,7 +79,8 @@ const listChallenges = async (req, res) => {
       return { ...c, isParticipant: !!myParticipant, currentProgress: myParticipant?.currentProgress || 0, completed: !!myParticipant?.completed };
     }));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -108,7 +110,8 @@ const getChallengeById = async (req, res) => {
 
     res.json({ ...challenge, isParticipant });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -141,7 +144,8 @@ const updateChallenge = async (req, res) => {
 
     res.json(updated);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -166,7 +170,8 @@ const deleteChallenge = async (req, res) => {
 
     res.json({ message: 'Challenge deleted successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -213,7 +218,8 @@ const joinChallenge = async (req, res) => {
 
     res.status(201).json(participant);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -236,7 +242,8 @@ const leaveChallenge = async (req, res) => {
 
     res.json({ message: 'Left challenge successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -267,7 +274,8 @@ const getChallengeRanking = async (req, res) => {
 
     res.json({ challenge: { id: challenge.id, name: challenge.name, metric: challenge.metric, targetValue: challenge.targetValue }, ranking });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

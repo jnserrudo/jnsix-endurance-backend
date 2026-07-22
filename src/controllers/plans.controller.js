@@ -21,7 +21,8 @@ const listPublicPlans = async (req, res) => {
 
     res.json(mapped);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

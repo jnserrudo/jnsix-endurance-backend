@@ -3,7 +3,7 @@ const prisma = require('../lib/prisma');
 const getCompetitions = async (req, res) => {
   try {
     const userId = req.user.id;
-    console.log('🟢 [GET COMPETITIONS] Usuario ID:', userId);
+    console.log('[INFO] [GET COMPETITIONS] Usuario ID:', userId);
 
     const competitions = await prisma.competitionGoal.findMany({
       where: { userId },
@@ -24,8 +24,9 @@ const getCompetitions = async (req, res) => {
 
     res.json(competitions);
   } catch (error) {
-    console.error('🔴 [GET COMPETITIONS] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [GET COMPETITIONS] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -38,7 +39,7 @@ const createCompetition = async (req, res) => {
       return res.status(400).json({ error: 'Name, type, distance, and date are required.' });
     }
 
-    console.log('🟢 [CREATE COMPETITION] Nuevo objetivo:', { name, type, distanceKm });
+    console.log('[INFO] [CREATE COMPETITION] Nuevo objetivo:', { name, type, distanceKm });
 
     // Validate targetDate format
     const parsedDate = new Date(targetDate);
@@ -65,8 +66,9 @@ const createCompetition = async (req, res) => {
 
     res.status(201).json(newComp);
   } catch (error) {
-    console.error('🔴 [CREATE COMPETITION] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [CREATE COMPETITION] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -112,8 +114,9 @@ const updateCompetition = async (req, res) => {
 
     res.json(updatedComp);
   } catch (error) {
-    console.error('🔴 [UPDATE COMPETITION] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [UPDATE COMPETITION] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -136,8 +139,9 @@ const deleteCompetition = async (req, res) => {
 
     res.json({ message: 'Competition goal deleted successfully.' });
   } catch (error) {
-    console.error('🔴 [DELETE COMPETITION] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [DELETE COMPETITION] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -191,8 +195,9 @@ const associateSimulation = async (req, res) => {
 
     res.json(updatedComp);
   } catch (error) {
-    console.error('🔴 [ASSOCIATE SIMULATION] Error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR] [ASSOCIATE SIMULATION] Error:', error.message);
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

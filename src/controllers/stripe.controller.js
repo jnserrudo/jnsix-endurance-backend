@@ -46,7 +46,8 @@ const createCheckoutSession = async (req, res) => {
 
     res.json({ sessionId: session.id, url: session.url });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -66,7 +67,8 @@ const createCustomerPortal = async (req, res) => {
 
     res.json({ url: session.url });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -163,7 +165,8 @@ const handleStripeWebhook = async (req, res) => {
     res.json({ received: true });
   } catch (error) {
     console.error('Stripe webhook error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

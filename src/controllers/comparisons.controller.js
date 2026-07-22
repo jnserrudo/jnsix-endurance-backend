@@ -47,7 +47,8 @@ const getComparisons = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -79,7 +80,8 @@ const getComparisonById = async (req, res) => {
 
     res.json(comparison);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -134,7 +136,8 @@ const createComparison = async (req, res) => {
 
     res.status(201).json(comparison);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -186,7 +189,8 @@ const addActivityToComparison = async (req, res) => {
 
     res.status(201).json(comparisonActivity);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -216,7 +220,8 @@ const removeActivityFromComparison = async (req, res) => {
 
     res.json({ message: 'Activity removed from comparison' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -251,7 +256,8 @@ const updateComparison = async (req, res) => {
 
     res.json(updated);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -274,7 +280,8 @@ const deleteComparison = async (req, res) => {
 
     res.json({ message: 'Comparison deleted successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 

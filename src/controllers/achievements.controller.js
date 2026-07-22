@@ -6,7 +6,8 @@ const getAchievements = async (req, res) => {
     const achievements = await prisma.achievement.findMany();
     res.json(achievements);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -20,7 +21,8 @@ const getUserAchievements = async (req, res) => {
     });
     res.json(userAchievements);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
@@ -94,7 +96,8 @@ const triggerCheck = async (req, res) => {
     const newAchievements = await checkAchievements(userId);
     res.json({ success: true, unlocked: newAchievements });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
