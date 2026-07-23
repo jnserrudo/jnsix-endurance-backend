@@ -1,4 +1,4 @@
-const { prisma } = require('../lib/prisma');
+const prisma = require('../lib/prisma');
 
 // Obtener todos los retos en vivo
 const getChallenges = async (req, res) => {

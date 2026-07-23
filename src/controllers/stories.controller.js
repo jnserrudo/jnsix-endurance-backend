@@ -1,4 +1,4 @@
-const { prisma } = require('../lib/prisma');
+const prisma = require('../lib/prisma');
 
 // Subir una nueva historia
 const createStory = async (req, res) => {

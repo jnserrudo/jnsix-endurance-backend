@@ -1,4 +1,4 @@
-const { prisma } = require('../lib/prisma');
+const prisma = require('../lib/prisma');
 
 // Obtener el plan de entrenamiento actual del usuario
 const getCurrentPlan = async (req, res) => {
