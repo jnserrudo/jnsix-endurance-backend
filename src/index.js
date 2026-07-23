@@ -52,15 +52,22 @@ app.use(cors({
     const allowedOrigins = [
       'http://localhost:5173',
       'http://localhost:3000',
-      'https://jnsix-endurance.onrender.com'
+      'https://jnsix-endurance.onrender.com',
+      'https://jnsix-endurance.duckdns.org'
     ];
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Mobile apps / curl often send no Origin
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+      return callback(null, true);
     }
+    // Expo Go / LAN during development (iOS + Android)
+    if (
+      /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin) ||
+      origin.startsWith('exp://')
+    ) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true
 }));
