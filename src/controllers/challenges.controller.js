@@ -54,6 +54,7 @@ const createChallenge = async (req, res) => {
 
 const listChallenges = async (req, res) => {
   try {
+    const userId = req.user.id;
     const { type, metric, active } = req.query;
     const where = { deletedAt: null };
 
