@@ -97,6 +97,83 @@ const register = async (req, res) => {
   }
 };
 
+const registerBusiness = async (req, res) => {
+  try {
+    const { email, password, username, businessName } = req.body;
+
+    if (!email || !password || !businessName?.trim()) {
+      return res.status(400).json({ error: 'Email, password and business name are required.' });
+    }
+
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email },
+          ...(username ? [{ username }] : [])
+        ]
+      }
+    });
+
+    if (existingUser) {
+      if (existingUser.email === email) {
+        return res.status(409).json({ error: 'Ya existe una cuenta registrada con este correo.' });
+      }
+      return res.status(409).json({ error: 'Este nombre de usuario ya está ocupado.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        email,
+        username: username || null,
+        password: hashedPassword,
+        role: 'BUSINESS',
+        business: {
+          create: {
+            name: businessName.trim(),
+            status: 'PENDING'
+          }
+        }
+      },
+      include: { business: true }
+    });
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    await prisma.emailVerification.create({
+      data: {
+        userId: user.id,
+        token: otpCode,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000)
+      }
+    });
+
+    try {
+      await emailService.sendVerificationOTP(user.email, otpCode, businessName.trim());
+    } catch (mailErr) {
+      console.error('[ERROR] [REGISTER BUSINESS] Email error:', mailErr.message);
+    }
+
+    const token = generateToken(user.id, user.email, user.role);
+
+    res.status(201).json({
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        emailVerified: user.emailVerified,
+        business: user.business
+      },
+      token,
+      message: 'Business registration successful. Awaiting admin approval.'
+    });
+  } catch (error) {
+    console.error('[ERROR] registerBusiness:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 const login = async (req, res) => {
   try {
     console.log('[INFO] [LOGIN] Intento de login:', req.body.email);
@@ -110,7 +187,11 @@ const login = async (req, res) => {
     const isEmail = identifier.includes('@');
 
     const user = await prisma.user.findFirst({
-      where: isEmail ? { email: identifier } : { username: identifier }
+      where: isEmail ? { email: identifier } : { username: identifier },
+      include: {
+        userScore: { include: { currentRank: true } },
+        business: { select: { id: true, name: true, status: true, logoUrl: true } }
+      }
     });
 
     if (!user || !user.password) {
@@ -155,7 +236,10 @@ const login = async (req, res) => {
         instagramUrl: user.instagramUrl,
         profileVisibility: user.profileVisibility,
         statsVisible: user.statsVisible,
-        activitiesVisible: user.activitiesVisible
+        activitiesVisible: user.activitiesVisible,
+        subscriptionTier: user.subscriptionTier,
+        userScore: user.userScore,
+        business: user.business
       },
       token
     });
@@ -309,7 +393,20 @@ const getCurrentUser = async (req, res) => {
         profileVisibility: true,
         statsVisible: true,
         activitiesVisible: true,
-        createdAt: true
+        createdAt: true,
+        subscriptionTier: true,
+        userScore: {
+          include: { currentRank: true }
+        },
+        business: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            logoUrl: true,
+            coverUrl: true
+          }
+        }
       }
     });
 
@@ -497,6 +594,7 @@ const unsubscribe = async (req, res) => {
 
 module.exports = {
   register,
+  registerBusiness,
   login,
   stravaAuth,
   stravaCallback,

@@ -1,4 +1,5 @@
 const prisma = require('../lib/prisma');
+const scoringService = require('./scoring.service');
 
 class GamificationService {
   async updateStreak(userId) {
@@ -11,17 +12,16 @@ class GamificationService {
 
       if (activities.length === 0) return 0;
 
-      // Extract unique dates in YYYY-MM-DD
-      const dates = [...new Set(activities.map(a => a.startDate.toISOString().split('T')[0]))];
-      
+      const dates = [...new Set(activities.map((a) => a.startDate.toISOString().split('T')[0])];
+
       let currentStreak = 0;
       const today = new Date().toISOString().split('T')[0];
       const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
       if (dates.includes(today) || dates.includes(yesterday)) {
         currentStreak = 1;
-        let checkDate = new Date(dates[0]); // start from the most recent
-        
+        const checkDate = new Date(dates[0]);
+
         for (let i = 1; i < dates.length; i++) {
           checkDate.setDate(checkDate.getDate() - 1);
           const expectedStr = checkDate.toISOString().split('T')[0];
@@ -52,6 +52,8 @@ class GamificationService {
         });
       }
 
+      await scoringService.awardStreakBonusIfEligible(userId, currentStreak);
+
       return currentStreak;
     } catch (error) {
       console.error('[GamificationService] updateStreak error:', error);
@@ -65,6 +67,8 @@ class GamificationService {
       const activeMissions = await prisma.mission.findMany({
         where: { isActive: true }
       });
+
+      const completedMissions = [];
 
       for (const mission of activeMissions) {
         let userMission = await prisma.userMission.findFirst({
@@ -80,19 +84,20 @@ class GamificationService {
           increment = activity.distanceKm || 0;
         } else if (mission.type === 'STREAK') {
           if (currentStreak >= mission.targetValue) {
-             increment = mission.targetValue;
+            increment = mission.targetValue;
           }
         }
 
         if (increment > 0 || mission.type === 'STREAK') {
-          const newProgress = mission.type === 'STREAK' 
-                              ? Math.max(userMission?.currentProgress || 0, currentStreak) 
-                              : (userMission?.currentProgress || 0) + increment;
-                              
+          const newProgress = mission.type === 'STREAK'
+            ? Math.max(userMission?.currentProgress || 0, currentStreak)
+            : (userMission?.currentProgress || 0) + increment;
+
           const completed = newProgress >= mission.targetValue;
+          const wasCompleted = userMission?.completed || false;
 
           if (!userMission) {
-            await prisma.userMission.create({
+            userMission = await prisma.userMission.create({
               data: {
                 user: { connect: { id: userId } },
                 mission: { connect: { id: mission.id } },
@@ -102,7 +107,7 @@ class GamificationService {
               }
             });
           } else {
-            await prisma.userMission.update({
+            userMission = await prisma.userMission.update({
               where: { id: userMission.id },
               data: {
                 currentProgress: newProgress,
@@ -111,10 +116,28 @@ class GamificationService {
               }
             });
           }
+
+          if (completed && !wasCompleted && mission.rewardPts > 0) {
+            const existingMissionScore = await prisma.scoreEvent.findFirst({
+              where: { userId, missionId: mission.id }
+            });
+
+            if (!existingMissionScore) {
+              await scoringService.awardPoints(userId, {
+                points: mission.rewardPts,
+                reason: `Mission completed: ${mission.title}`,
+                missionId: mission.id
+              });
+              completedMissions.push({ mission, points: mission.rewardPts });
+            }
+          }
         }
       }
+
+      return completedMissions;
     } catch (error) {
       console.error('[GamificationService] checkMissionsForActivity error:', error);
+      return [];
     }
   }
 }

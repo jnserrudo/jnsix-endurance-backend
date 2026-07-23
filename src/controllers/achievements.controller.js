@@ -1,5 +1,5 @@
 const prisma = require('../lib/prisma');
-const { notify } = require('../services/notifications.service');
+const scoringService = require('../services/scoring.service');
 
 const getAchievements = async (req, res) => {
   try {
@@ -58,27 +58,10 @@ const checkAchievements = async (userId) => {
           await prisma.userAchievement.create({ data: { userId, achievementId: achievementRecord.id } });
           unlocked.push(achievementRecord);
 
-          await prisma.scoreEvent.create({
-            data: { userId, points: achievementRecord.points, reason: `Achievement unlocked: ${achievementRecord.name}` }
-          });
-
-          const currentScore = await prisma.userScore.findUnique({ where: { userId }});
-          if (currentScore) {
-             await prisma.userScore.update({
-               where: { userId },
-               data: { totalPoints: currentScore.totalPoints + achievementRecord.points }
-             });
-          } else {
-             await prisma.userScore.create({
-               data: { userId, totalPoints: achievementRecord.points }
-             });
-          }
-
-          // Note: ensure cross-platform considerations when formatting notifications for iOS/Android
-          await notify(userId, 'SYSTEM', {
-            title: '¡Logro Desbloqueado!',
-            body: `Has desbloqueado el logro: ${achievementRecord.name}`,
-            payload: { type: 'ACHIEVEMENT', achievementId: achievementRecord.id }
+          await scoringService.awardPoints(userId, {
+            points: achievementRecord.points,
+            reason: `Achievement unlocked: ${achievementRecord.name}`,
+            achievementId: achievementRecord.id
           });
         }
       }

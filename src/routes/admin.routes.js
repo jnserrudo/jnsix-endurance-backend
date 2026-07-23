@@ -61,4 +61,10 @@ router.post('/exercises', requirePermission('exercises.manage'), adminController
 router.put('/exercises/:id', requirePermission('exercises.manage'), adminController.editExercise);
 router.delete('/exercises/:id', requirePermission('exercises.manage'), adminController.deleteExercise);
 
+// Marketplace - Negocios
+router.get('/businesses', requirePermission('businesses.moderate'), adminController.listBusinesses);
+router.patch('/businesses/:id/approve', requirePermission('businesses.moderate'), adminController.approveBusiness);
+router.patch('/businesses/:id/reject', requirePermission('businesses.moderate'), adminController.rejectBusiness);
+router.patch('/businesses/:id/suspend', requirePermission('businesses.moderate'), adminController.suspendBusiness);
+
 module.exports = router;

@@ -21,7 +21,12 @@ const PERMISSIONS = [
   { key: 'plans.manage', module: 'plans', description: 'Gestionar planes, features y precios' },
   { key: 'feature_flags.manage', module: 'feature_flags', description: 'Encender/apagar modulos completos' },
   { key: 'audit.view', module: 'audit', description: 'Ver el log de auditoria completo' },
-  { key: 'notifications.manage', module: 'notifications', description: 'Enviar notificaciones/broadcast y ver plantillas' }
+  { key: 'notifications.manage', module: 'notifications', description: 'Enviar notificaciones/broadcast y ver plantillas' },
+  { key: 'businesses.moderate', module: 'marketplace', description: 'Aprobar/rechazar negocios del marketplace' },
+  { key: 'rewards.moderate', module: 'marketplace', description: 'Moderar recompensas del marketplace' },
+  { key: 'business.profile.manage', module: 'marketplace', description: 'Gestionar perfil de negocio' },
+  { key: 'rewards.manage', module: 'marketplace', description: 'Gestionar recompensas del negocio' },
+  { key: 'redemptions.validate', module: 'marketplace', description: 'Validar cupones canjeados' }
 ];
 
 const ROLE_DEFINITIONS = [
@@ -38,6 +43,12 @@ const ROLE_DEFINITIONS = [
     description: 'Entrenador con vista sobre sus atletas',
     isSystem: false,
     permissions: ['users.view', 'challenges.create_global', 'challenges.edit']
+  },
+  {
+    name: 'BUSINESS',
+    description: 'Negocio adherido al marketplace de recompensas',
+    isSystem: true,
+    permissions: ['business.profile.manage', 'rewards.manage', 'redemptions.validate']
   }
 ];
 
@@ -51,7 +62,8 @@ const FEATURE_FLAGS = [
   { key: 'feed_enabled', name: 'Feed social', description: 'Habilita el feed de posts/comentarios/reacciones' },
   { key: 'notifications_push_enabled', name: 'Push notifications', description: 'Habilita el envio de notificaciones push (Expo)' },
   { key: 'notifications_email_enabled', name: 'Email notifications', description: 'Habilita el envio de emails (resumenes/alertas)' },
-  { key: 'plans_enabled', name: 'Planes y limites', description: 'Habilita el enforcement de planes/features' }
+  { key: 'plans_enabled', name: 'Planes y limites', description: 'Habilita el enforcement de planes/features' },
+  { key: 'rewards_marketplace_enabled', name: 'Marketplace de Recompensas', description: 'Habilita el club de beneficios y canje de puntos' }
 ];
 
 const PLANS = [

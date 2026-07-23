@@ -112,15 +112,14 @@ const completeSession = async (req, res) => {
       data: { completedAt: new Date() }
     });
 
-    scoringService.awardWorkoutPoints(session.id).catch((err) => {
-      console.error('[Scoring] Failed to award workout points:', err.message);
-    });
+    const scoreResult = await scoringService.awardWorkoutPoints(session.id);
+    const scoring = scoringService.buildScoringResponse(scoreResult);
 
     challengesService.updateChallengeProgress(req.user.id).catch((err) => {
       console.error('[Challenges] Failed to update progress after workout:', err.message);
     });
 
-    res.json(updated);
+    res.json({ ...updated, scoring });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });

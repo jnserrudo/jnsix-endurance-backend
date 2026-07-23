@@ -1,7 +1,6 @@
 const cron = require('node-cron');
 const prisma = require('../lib/prisma');
-// We will add this to push.service.js later if needed, but for now we'll just implement it inline here 
-// or call the method if it's there.
+const { rotateFeaturedReward, expireRedemptions } = require('./marketplace.service');
 
 const startCronJobs = () => {
   // Run every day at midnight (00:00)
@@ -40,6 +39,9 @@ const startCronJobs = () => {
         });
         console.log(`Demoted ${usersToDemote.length} users to FREE tier.`);
       }
+
+      await expireRedemptions();
+      await rotateFeaturedReward();
 
     } catch (error) {
       console.error('Error in daily cron jobs:', error);

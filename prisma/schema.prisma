@@ -97,6 +97,9 @@ model User {
   storyViews            StoryView[]
   segmentEfforts        SegmentLeaderboard[]
 
+  business              Business?
+  redemptions           Redemption[]
+  rewardWishlist        RewardWishlist[]
 
   @@map("users")
 }
@@ -491,16 +494,22 @@ model CommunityMember {
 // ============================================================
 
 model ScoreEvent {
-  id         String    @id @default(uuid())
-  userId     String    @map("user_id")
-  activityId String?   @map("activity_id")
-  points     Int
-  reason     String
-  createdAt  DateTime  @default(now()) @map("created_at")
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  activity   Activity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  id            String      @id @default(uuid())
+  userId        String      @map("user_id")
+  activityId    String?     @map("activity_id")
+  missionId     String?     @map("mission_id")
+  achievementId String?     @map("achievement_id")
+  workoutId     String?     @map("workout_id")
+  redemptionId  String?     @unique @map("redemption_id")
+  points        Int
+  reason        String
+  createdAt     DateTime    @default(now()) @map("created_at")
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity      Activity?   @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  redemption    Redemption? @relation(fields: [redemptionId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([userId, createdAt])
   @@map("score_events")
 }
 
@@ -833,9 +842,125 @@ model DiscountRedemption {
   @@map("discount_redemptions")
 }
 
+// ============================================================
+// Marketplace de Recompensas / Club de Beneficios
+// ============================================================
+
+model Business {
+  id              String         @id @default(uuid())
+  userId          String         @unique @map("user_id")
+  name            String
+  description     String?        @db.Text
+  logoUrl         String?        @map("logo_url")
+  coverUrl        String?        @map("cover_url")
+  address         String?
+  city            String?
+  country         String?
+  websiteUrl      String?        @map("website_url")
+  instagramUrl    String?        @map("instagram_url")
+  status          BusinessStatus @default(PENDING)
+  rejectionReason String?        @map("rejection_reason") @db.Text
+  approvedAt      DateTime?      @map("approved_at")
+  approvedBy      String?        @map("approved_by")
+  isActive        Boolean        @default(true) @map("is_active")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rewards         Reward[]
+  redemptions     Redemption[]
+
+  @@index([status, isActive])
+  @@map("businesses")
+}
+
+model Reward {
+  id                  String           @id @default(uuid())
+  businessId          String           @map("business_id")
+  title               String
+  description         String?          @db.Text
+  imageUrl            String?          @map("image_url")
+  pointsCost          Int              @map("points_cost")
+  terms               String?          @db.Text
+  stockTotal          Int?             @map("stock_total")
+  stockRemaining      Int?             @map("stock_remaining")
+  maxPerUser          Int?             @map("max_per_user")
+  status              RewardStatus     @default(DRAFT)
+  startsAt            DateTime?        @map("starts_at")
+  expiresAt           DateTime?        @map("expires_at")
+  minRankOrder        Int?             @map("min_rank_order")
+  isFeatured          Boolean          @default(false) @map("is_featured")
+  featuredUntil       DateTime?        @map("featured_until")
+  featuredDiscountPct Int?             @map("featured_discount_pct")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  business            Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  redemptions         Redemption[]
+  wishlistItems       RewardWishlist[]
+
+  @@index([businessId, status])
+  @@index([status, expiresAt])
+  @@index([isFeatured, featuredUntil])
+  @@map("rewards")
+}
+
+model Redemption {
+  id          String           @id @default(uuid())
+  userId      String           @map("user_id")
+  rewardId    String           @map("reward_id")
+  businessId  String           @map("business_id")
+  code        String           @unique
+  pointsSpent Int              @map("points_spent")
+  status      RedemptionStatus @default(ACTIVE)
+  usedAt      DateTime?        @map("used_at")
+  expiresAt   DateTime?        @map("expires_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reward      Reward           @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+  business    Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  scoreEvent  ScoreEvent?
+
+  @@index([userId, status])
+  @@index([businessId])
+  @@map("redemptions")
+}
+
+model RewardWishlist {
+  userId    String   @map("user_id")
+  rewardId  String   @map("reward_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reward    Reward   @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+
+  @@id([userId, rewardId])
+  @@map("reward_wishlist")
+}
+
 enum Role {
   ADMIN
   ATHLETE
+  BUSINESS
+}
+
+enum BusinessStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum RewardStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  EXPIRED
+}
+
+enum RedemptionStatus {
+  ACTIVE
+  USED
+  EXPIRED
+  CANCELLED
 }
 
 enum ActivityType {
@@ -936,6 +1061,10 @@ enum NotificationType {
   COMMUNITY_JOIN_REQUEST
   COMMUNITY_JOIN_RESPONSE
   SYSTEM
+  POINTS_EARNED
+  RANK_CHANGED
+  REWARD_REDEEMED
+  REWARD_AVAILABLE
 }
 
 enum InvitationStatus {

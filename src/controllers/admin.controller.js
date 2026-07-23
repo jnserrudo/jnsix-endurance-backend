@@ -84,7 +84,7 @@ const getUserDetails = async (req, res) => {
   }
 };
 
-const VALID_ROLES = ['ADMIN', 'ATHLETE'];
+const VALID_ROLES = ['ADMIN', 'ATHLETE', 'BUSINESS'];
 
 
 const createUser = async (req, res) => {
@@ -713,6 +713,72 @@ const deleteExercise = async (req, res) => {
   }
 };
 
+const listBusinesses = async (req, res) => {
+  try {
+    const status = req.query.status;
+    const businesses = await prisma.business.findMany({
+      where: status ? { status } : {},
+      include: {
+        user: { select: { id: true, email: true, username: true } },
+        _count: { select: { rewards: true, redemptions: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(businesses);
+  } catch (error) {
+    console.error('[ERROR] listBusinesses:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+const approveBusiness = async (req, res) => {
+  try {
+    const business = await prisma.business.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'APPROVED',
+        approvedAt: new Date(),
+        approvedBy: req.user.id,
+        rejectionReason: null
+      }
+    });
+    res.json(business);
+  } catch (error) {
+    console.error('[ERROR] approveBusiness:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+const rejectBusiness = async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const business = await prisma.business.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'REJECTED',
+        rejectionReason: reason || 'Rejected by admin'
+      }
+    });
+    res.json(business);
+  } catch (error) {
+    console.error('[ERROR] rejectBusiness:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+const suspendBusiness = async (req, res) => {
+  try {
+    const business = await prisma.business.update({
+      where: { id: req.params.id },
+      data: { status: 'SUSPENDED', isActive: false }
+    });
+    res.json(business);
+  } catch (error) {
+    console.error('[ERROR] suspendBusiness:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 module.exports = {
   getStats,
   listUsers,
@@ -748,5 +814,9 @@ module.exports = {
   listAdminExercises,
   createExercise,
   editExercise,
-  deleteExercise
+  deleteExercise,
+  listBusinesses,
+  approveBusiness,
+  rejectBusiness,
+  suspendBusiness
 };

@@ -10,6 +10,33 @@ const challengesService = require('../services/challenges.service');
 const gamificationService = require('../services/gamification.service');
 const prisma = require('../lib/prisma');
 
+const buildActivityScoringPayload = async (userId, activity) => {
+  const scoreResult = await scoringService.awardActivityPointsIfNotScored(activity.id);
+  const completedMissions = await gamificationService.checkMissionsForActivity(userId, activity);
+  const missionPoints = completedMissions.reduce((sum, m) => sum + (m.points || 0), 0);
+  const activityPoints = scoreResult.points || 0;
+  const totalEarned = activityPoints + missionPoints;
+
+  const latestScore = await prisma.userScore.findUnique({
+    where: { userId },
+    include: { currentRank: true }
+  });
+
+  return {
+    pointsEarned: totalEarned,
+    activityPoints,
+    missionPoints,
+    completedMissions: completedMissions.map((m) => ({
+      title: m.mission.title,
+      points: m.points
+    })),
+    newTotalPoints: latestScore?.totalPoints ?? null,
+    rank: latestScore?.currentRank ?? null,
+    rankChanged: scoreResult.rankChanged || false,
+    rankDirection: scoreResult.rankDirection || null
+  };
+};
+
 const ensureValidStravaToken = async (user) => {
   const isExpired = user.stravaTokenExpiry && 
     (new Date(user.stravaTokenExpiry).getTime() - Date.now() < 5 * 60 * 1000);
@@ -253,15 +280,13 @@ const createActivity = async (req, res) => {
       }
     });
 
-    scoringService.awardActivityPoints(activity.id).catch((err) => {
-      console.error('[Scoring] Failed to award points:', err.message);
-    });
-
     challengesService.updateChallengeProgress(userId).catch((err) => {
       console.error('[Challenges] Failed to update progress:', err.message);
     });
 
-    res.status(201).json(activity);
+    const scoring = await buildActivityScoringPayload(userId, activity).catch(() => null);
+
+    res.status(201).json({ ...activity, scoring });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -319,15 +344,12 @@ const uploadActivity = async (req, res) => {
       }
     });
 
-    scoringService.awardActivityPoints(activity.id).catch((err) => {
-      console.error('[Scoring] Failed to award points:', err.message);
-    });
-
     challengesService.updateChallengeProgress(userId).catch((err) => {
       console.error('[Challenges] Failed to update progress:', err.message);
     });
 
-    res.status(201).json(activity);
+    const scoring = await buildActivityScoringPayload(userId, activity).catch(() => null);
+    res.status(201).json({ ...activity, scoring });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -411,15 +433,12 @@ const importFromLink = async (req, res) => {
       }
     });
 
-    scoringService.awardActivityPoints(activity.id).catch((err) => {
-      console.error('[Scoring] Failed to award points:', err.message);
-    });
-
     challengesService.updateChallengeProgress(userId).catch((err) => {
       console.error('[Challenges] Failed to update progress:', err.message);
     });
 
-    res.status(201).json(activity);
+    const scoring = await buildActivityScoringPayload(userId, activity).catch(() => null);
+    res.status(201).json({ ...activity, scoring });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -1116,8 +1135,7 @@ const createManualActivity = async (req, res) => {
       }
     });
 
-    scoringService.awardActivityPointsIfNotScored(activity.id).catch(console.error);
-    gamificationService.checkMissionsForActivity(userId, activity).catch(console.error);
+    const scoring = await buildActivityScoringPayload(userId, activity).catch(() => null);
 
     if (rpe) {
       await prisma.effortLog.create({
@@ -1130,7 +1148,7 @@ const createManualActivity = async (req, res) => {
       });
     }
 
-    res.status(201).json(activity);
+    res.status(201).json({ ...activity, scoring });
   } catch (error) {
     console.error('[ERROR] [CREATE MANUAL ACTIVITY] Error:', error.message);
     console.error('[ERROR]', error);
