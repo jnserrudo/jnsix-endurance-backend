@@ -12,7 +12,7 @@ class GamificationService {
 
       if (activities.length === 0) return 0;
 
-      const dates = [...new Set(activities.map((a) => a.startDate.toISOString().split('T')[0])];
+      const dates = [...new Set(activities.map((a) => a.startDate.toISOString().split('T')[0]))];
 
       let currentStreak = 0;
       const today = new Date().toISOString().split('T')[0];
