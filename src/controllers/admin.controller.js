@@ -621,7 +621,7 @@ const deleteGroup = async (req, res) => {
 const listAdminExercises = async (req, res) => {
   try {
     const { search, page = 1, limit = 50 } = req.query;
-    const where = { deletedAt: null };
+    const where = {};
 
     if (search) {
       where.name = { contains: search, mode: 'insensitive' };
@@ -646,9 +646,24 @@ const listAdminExercises = async (req, res) => {
 
 const createExercise = async (req, res) => {
   try {
-    const { name, description, primaryMuscle, secondaryMuscles, equipment, mechanics, difficulty, gifUrl, videoUrl } = req.body;
+    const { name, category, bodyPart, equipment, target, muscleGroup, secondaryMuscles, instructionsEn, instructionsEs, instructionsJson, gifUrl, image, attribution } = req.body;
     const exercise = await prisma.exercise.create({
-      data: { name, description, primaryMuscle, secondaryMuscles, equipment, mechanics, difficulty, gifUrl, videoUrl }
+      data: { 
+        id: require('uuid').v4(),
+        name, 
+        category: category || 'General', 
+        bodyPart: bodyPart || '', 
+        equipment: equipment || 'body weight', 
+        target: target || '', 
+        muscleGroup: muscleGroup || '', 
+        secondaryMuscles: secondaryMuscles || [],
+        instructionsEn: instructionsEn || '', 
+        instructionsEs: instructionsEs || '', 
+        instructionsJson: instructionsJson || [],
+        gifUrl, 
+        image, 
+        attribution 
+      }
     });
     res.status(201).json(exercise);
   } catch (error) {
@@ -659,10 +674,25 @@ const createExercise = async (req, res) => {
 
 const editExercise = async (req, res) => {
   try {
-    const { name, description, primaryMuscle, secondaryMuscles, equipment, mechanics, difficulty, gifUrl, videoUrl } = req.body;
+    const { name, category, bodyPart, equipment, target, muscleGroup, secondaryMuscles, instructionsEn, instructionsEs, instructionsJson, gifUrl, image, attribution } = req.body;
+    const data = {};
+    if (name !== undefined) data.name = name;
+    if (category !== undefined) data.category = category;
+    if (bodyPart !== undefined) data.bodyPart = bodyPart;
+    if (equipment !== undefined) data.equipment = equipment;
+    if (target !== undefined) data.target = target;
+    if (muscleGroup !== undefined) data.muscleGroup = muscleGroup;
+    if (secondaryMuscles !== undefined) data.secondaryMuscles = secondaryMuscles;
+    if (instructionsEn !== undefined) data.instructionsEn = instructionsEn;
+    if (instructionsEs !== undefined) data.instructionsEs = instructionsEs;
+    if (instructionsJson !== undefined) data.instructionsJson = instructionsJson;
+    if (gifUrl !== undefined) data.gifUrl = gifUrl;
+    if (image !== undefined) data.image = image;
+    if (attribution !== undefined) data.attribution = attribution;
+
     const exercise = await prisma.exercise.update({
       where: { id: req.params.id },
-      data: { name, description, primaryMuscle, secondaryMuscles, equipment, mechanics, difficulty, gifUrl, videoUrl }
+      data
     });
     res.json(exercise);
   } catch (error) {
@@ -673,9 +703,8 @@ const editExercise = async (req, res) => {
 
 const deleteExercise = async (req, res) => {
   try {
-    await prisma.exercise.update({
-      where: { id: req.params.id },
-      data: { deletedAt: new Date() }
+    await prisma.exercise.delete({
+      where: { id: req.params.id }
     });
     res.json({ message: 'Exercise deleted successfully' });
   } catch (error) {

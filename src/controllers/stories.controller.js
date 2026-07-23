@@ -40,13 +40,13 @@ const getFeedStories = async (req, res) => {
     const friendships = await prisma.friendship.findMany({
       where: {
         OR: [
-          { requesterId: userId, status: 'ACCEPTED' },
-          { addresseeId: userId, status: 'ACCEPTED' }
+          { userId: userId, status: 'ACCEPTED' },
+          { friendId: userId, status: 'ACCEPTED' }
         ]
       }
     });
 
-    const friendIds = friendships.map(f => f.requesterId === userId ? f.addresseeId : f.requesterId);
+    const friendIds = friendships.map(f => f.userId === userId ? f.friendId : f.userId);
     
     // Incluir también las propias historias del usuario
     const userIds = [...friendIds, userId];
@@ -63,7 +63,7 @@ const getFeedStories = async (req, res) => {
             id: true,
             firstName: true,
             lastName: true,
-            profileImage: true
+            avatarUrl: true
           }
         },
         views: {

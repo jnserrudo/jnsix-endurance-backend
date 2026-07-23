@@ -8,7 +8,7 @@ const getCurrentPlan = async (req, res) => {
     const userPlan = await prisma.userPlan.findFirst({
       where: { userId, isActive: true },
       include: {
-        trainingPlan: {
+        plan: {
           include: {
             sessions: {
               orderBy: [

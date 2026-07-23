@@ -68,7 +68,7 @@ const getLeaderboard = async (req, res) => {
       orderBy: { timeSeconds: 'asc' },
       take: 100,
       include: {
-        user: { select: { id: true, firstName: true, lastName: true, profileImage: true } }
+        user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } }
       }
     });
 

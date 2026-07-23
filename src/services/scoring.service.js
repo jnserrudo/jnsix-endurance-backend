@@ -95,7 +95,7 @@ const recalculateUserScore = async (userId) => {
  * Util para sync y upserts donde no sabemos si se creo o actualizo.
  */
 const awardActivityPointsIfNotScored = async (activityId) => {
-  const existing = await prisma.scoreEvent.findUnique({ where: { activityId } });
+  const existing = await prisma.scoreEvent.findFirst({ where: { activityId } });
   if (!existing) {
     await awardActivityPoints(activityId);
   }

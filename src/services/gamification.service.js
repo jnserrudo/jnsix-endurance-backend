@@ -61,6 +61,7 @@ class GamificationService {
 
   async checkMissionsForActivity(userId, activity) {
     try {
+      const currentStreak = await this.updateStreak(userId);
       const activeMissions = await prisma.mission.findMany({
         where: { isActive: true }
       });
@@ -78,7 +79,6 @@ class GamificationService {
         } else if (mission.type === 'TOTAL_DISTANCE') {
           increment = activity.distanceKm || 0;
         } else if (mission.type === 'STREAK') {
-          const currentStreak = await this.updateStreak(userId);
           if (currentStreak >= mission.targetValue) {
              increment = mission.targetValue;
           }
@@ -86,7 +86,7 @@ class GamificationService {
 
         if (increment > 0 || mission.type === 'STREAK') {
           const newProgress = mission.type === 'STREAK' 
-                              ? Math.max(userMission?.currentProgress || 0, await this.updateStreak(userId)) 
+                              ? Math.max(userMission?.currentProgress || 0, currentStreak) 
                               : (userMission?.currentProgress || 0) + increment;
                               
           const completed = newProgress >= mission.targetValue;
