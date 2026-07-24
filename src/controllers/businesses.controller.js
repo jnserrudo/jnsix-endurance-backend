@@ -286,44 +286,81 @@ const listMyRedemptions = async (req, res) => {
   }
 };
 
+const findBusinessRedemptionByCode = async (businessId, code) => {
+  const normalized = code.trim().toUpperCase().replace(/\s/g, '');
+  return prisma.redemption.findFirst({
+    where: {
+      OR: [{ code: normalized }, { code: code.trim().toUpperCase() }],
+      businessId
+    },
+    include: {
+      reward: { select: { id: true, title: true, pointsCost: true } },
+      user: { select: { id: true, username: true, email: true, firstName: true, lastName: true } }
+    }
+  });
+};
+
+const lookupRedemption = async (req, res) => {
+  try {
+    const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
+    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+
+    const { code } = req.body;
+    if (!code?.trim()) return res.status(400).json({ error: 'Código requerido' });
+
+    const redemption = await findBusinessRedemptionByCode(business.id, code);
+    if (!redemption) return res.status(404).json({ error: 'Cupón no encontrado' });
+
+    if (redemption.status === 'USED') {
+      return res.status(409).json({ error: 'Este cupón ya fue usado', redemption });
+    }
+    if (redemption.status !== 'ACTIVE') {
+      return res.status(400).json({ error: 'El cupón no está activo', redemption });
+    }
+    if (redemption.expiresAt && redemption.expiresAt < new Date()) {
+      await prisma.redemption.update({ where: { id: redemption.id }, data: { status: 'EXPIRED' } });
+      return res.status(400).json({ error: 'Cupón vencido', redemption });
+    }
+
+    res.json({ redemption, preview: true });
+  } catch (error) {
+    console.error('[ERROR] lookupRedemption:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 const validateRedemption = async (req, res) => {
   try {
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
     if (!business) return res.status(404).json({ error: 'Business profile not found' });
 
     const { code } = req.body;
-    if (!code?.trim()) return res.status(400).json({ error: 'Code is required' });
+    if (!code?.trim()) return res.status(400).json({ error: 'Código requerido' });
 
-    const normalized = code.trim().toUpperCase().replace(/\s/g, '');
-
-    const redemption = await prisma.redemption.findFirst({
-      where: {
-        OR: [{ code: normalized }, { code: code.trim().toUpperCase() }],
-        businessId: business.id
-      },
-      include: { reward: true, user: { select: { id: true, username: true } } }
-    });
-
-    if (!redemption) return res.status(404).json({ error: 'Redemption not found' });
+    const redemption = await findBusinessRedemptionByCode(business.id, code);
+    if (!redemption) return res.status(404).json({ error: 'Cupón no encontrado' });
 
     if (redemption.status === 'USED') {
-      return res.status(409).json({ error: 'Coupon already used', redemption });
+      return res.status(409).json({ error: 'Este cupón ya fue usado', redemption });
     }
     if (redemption.status !== 'ACTIVE') {
-      return res.status(400).json({ error: 'Coupon is not active', redemption });
+      return res.status(400).json({ error: 'El cupón no está activo', redemption });
     }
     if (redemption.expiresAt && redemption.expiresAt < new Date()) {
       await prisma.redemption.update({ where: { id: redemption.id }, data: { status: 'EXPIRED' } });
-      return res.status(400).json({ error: 'Coupon expired', redemption });
+      return res.status(400).json({ error: 'Cupón vencido', redemption });
     }
 
     const updated = await prisma.redemption.update({
       where: { id: redemption.id },
       data: { status: 'USED', usedAt: new Date() },
-      include: { reward: true, user: { select: { id: true, username: true } } }
+      include: {
+        reward: { select: { id: true, title: true, pointsCost: true } },
+        user: { select: { id: true, username: true, email: true } }
+      }
     });
 
-    res.json({ message: 'Coupon validated', redemption: updated });
+    res.json({ message: 'Cupón validado', redemption: updated });
   } catch (error) {
     console.error('[ERROR] validateRedemption:', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -342,5 +379,6 @@ module.exports = {
   updateMyRewardStatus,
   uploadRewardImage,
   listMyRedemptions,
+  lookupRedemption,
   validateRedemption
 };

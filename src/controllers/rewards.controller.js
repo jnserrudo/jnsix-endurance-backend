@@ -195,18 +195,28 @@ const getMyWishlist = async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    const totalPoints = (await prisma.userScore.findUnique({ where: { userId: req.user.id } }))?.totalPoints || 0;
+    const userScore = await prisma.userScore.findUnique({
+      where: { userId: req.user.id },
+      include: { currentRank: true }
+    });
+    const totalPoints = userScore?.totalPoints || 0;
+    const rankOrder = userScore?.currentRank?.order || 0;
 
     res.json({
-      items: items.map((i) => ({
-        ...i,
-        reward: {
-          ...i.reward,
-          effectiveCost: rewardsService.getEffectivePointsCost(i.reward),
-          pointsNeeded: Math.max(0, rewardsService.getEffectivePointsCost(i.reward) - totalPoints),
-          canRedeem: totalPoints >= rewardsService.getEffectivePointsCost(i.reward)
-        }
-      }))
+      items: items.map((i) => {
+        const effectiveCost = rewardsService.getEffectivePointsCost(i.reward);
+        const meetsRank = !i.reward.minRankOrder || rankOrder >= i.reward.minRankOrder;
+        return {
+          ...i,
+          reward: {
+            ...i.reward,
+            effectiveCost,
+            pointsNeeded: Math.max(0, effectiveCost - totalPoints),
+            canRedeem: totalPoints >= effectiveCost && meetsRank,
+            meetsRankRequirement: meetsRank
+          }
+        };
+      })
     });
   } catch (error) {
     console.error('[ERROR] getMyWishlist:', error);

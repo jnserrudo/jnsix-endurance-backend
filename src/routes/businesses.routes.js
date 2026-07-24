@@ -20,6 +20,7 @@ router.patch('/me/rewards/:id/status', authenticateToken, requireRole('BUSINESS'
 router.post('/me/rewards/:id/image', authenticateToken, requireRole('BUSINESS'), uploadImage.single('image'), businessesController.uploadRewardImage);
 
 router.get('/me/redemptions', authenticateToken, requireRole('BUSINESS'), businessesController.listMyRedemptions);
+router.post('/me/redemptions/lookup', authenticateToken, requireRole('BUSINESS'), businessesController.lookupRedemption);
 router.post('/me/redemptions/validate', authenticateToken, requireRole('BUSINESS'), businessesController.validateRedemption);
 
 router.get('/:id', optionalAuth, businessesController.getBusinessById);

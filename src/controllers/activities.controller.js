@@ -23,18 +23,30 @@ const buildActivityScoringPayload = async (userId, activity) => {
   });
 
   return {
-    pointsEarned: totalEarned,
     activityPoints,
     missionPoints,
-    completedMissions: completedMissions.map((m) => ({
-      title: m.mission.title,
-      points: m.points
-    })),
+    pointsAwarded: totalEarned,
+    pointsEarned: totalEarned,
+    alreadyScored: !!scoreResult.alreadyScored,
+    totalPoints: latestScore?.totalPoints ?? 0,
     newTotalPoints: latestScore?.totalPoints ?? null,
-    rank: latestScore?.currentRank ?? null,
+    rank: latestScore?.currentRank || null,
     rankChanged: scoreResult.rankChanged || false,
-    rankDirection: scoreResult.rankDirection || null
+    rankDirection: scoreResult.rankDirection || null,
+    completedMissions: (completedMissions || []).map((m) => ({
+      title: m.mission?.title || m.title,
+      points: m.points
+    }))
   };
+};
+
+const safeScoreActivity = async (userId, activity) => {
+  try {
+    return await buildActivityScoringPayload(userId, activity);
+  } catch (err) {
+    console.error('[Scoring] Failed for activity', activity?.id, err.message);
+    return { pointsAwarded: 0, error: err.message };
+  }
 };
 
 const ensureValidStravaToken = async (user) => {
@@ -284,7 +296,7 @@ const createActivity = async (req, res) => {
       console.error('[Challenges] Failed to update progress:', err.message);
     });
 
-    const scoring = await buildActivityScoringPayload(userId, activity).catch(() => null);
+    const scoring = await safeScoreActivity(userId, activity);
 
     res.status(201).json({ ...activity, scoring });
   } catch (error) {
@@ -348,7 +360,7 @@ const uploadActivity = async (req, res) => {
       console.error('[Challenges] Failed to update progress:', err.message);
     });
 
-    const scoring = await buildActivityScoringPayload(userId, activity).catch(() => null);
+    const scoring = await safeScoreActivity(userId, activity);
     res.status(201).json({ ...activity, scoring });
   } catch (error) {
     console.error('[ERROR]', error);
@@ -437,7 +449,7 @@ const importFromLink = async (req, res) => {
       console.error('[Challenges] Failed to update progress:', err.message);
     });
 
-    const scoring = await buildActivityScoringPayload(userId, activity).catch(() => null);
+    const scoring = await safeScoreActivity(userId, activity);
     res.status(201).json({ ...activity, scoring });
   } catch (error) {
     console.error('[ERROR]', error);
@@ -1135,7 +1147,7 @@ const createManualActivity = async (req, res) => {
       }
     });
 
-    const scoring = await buildActivityScoringPayload(userId, activity).catch(() => null);
+    const scoring = await safeScoreActivity(userId, activity);
 
     if (rpe) {
       await prisma.effortLog.create({

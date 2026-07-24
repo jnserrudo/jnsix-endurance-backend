@@ -31,12 +31,19 @@ const deriveEventMeta = (event) => {
 };
 
 const calculateActivityPoints = (activity) => {
-  const distancePoints = activity.distanceKm * 10;
-  const elevationPoints = activity.elevationM * 0.5;
-  const timePoints = (activity.movingTime / 3600) * 20;
-  const multiplier = TYPE_MULTIPLIERS[activity.type] || 1;
+  const distanceKm = Number(activity.distanceKm) || 0;
+  const elevationM = Number(activity.elevationM) || 0;
+  const movingTime = Number(activity.movingTime) || 0;
+  const distancePoints = distanceKm * 10;
+  const elevationPoints = elevationM * 0.5;
+  const timePoints = (movingTime / 3600) * 20;
+  const multiplier = TYPE_MULTIPLIERS[activity.type] || TYPE_MULTIPLIERS.OTHER;
   const total = (distancePoints + elevationPoints + timePoints) * multiplier;
-  return Math.max(0, Math.round(total));
+  if (!Number.isFinite(total)) return 0;
+  // Mínimo 1 pt si hay actividad con distancia o tiempo medible
+  const rounded = Math.round(total);
+  if (rounded <= 0 && (distanceKm > 0.05 || movingTime >= 60)) return 1;
+  return Math.max(0, rounded);
 };
 
 const recalculateUserScore = async (userId) => {
