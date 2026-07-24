@@ -45,7 +45,9 @@ const getFeed = async (req, res) => {
       orderBy: { startDate: 'desc' },
       take: skip + PAGE_SIZE,
       include: {
-        user: { select: { id: true, email: true } },
+        user: {
+          select: { id: true, email: true, username: true, firstName: true, avatarUrl: true },
+        },
         _count: { select: { comments: true } }
       }
     });
@@ -64,7 +66,9 @@ const getFeed = async (req, res) => {
       orderBy: { createdAt: 'desc' },
       take: skip + PAGE_SIZE,
       include: {
-        user: { select: { id: true, email: true } },
+        user: {
+          select: { id: true, email: true, username: true, firstName: true, avatarUrl: true },
+        },
         activity: { select: { id: true, name: true } },
         _count: { select: { comments: true } }
       }

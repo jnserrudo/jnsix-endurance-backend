@@ -1,13 +1,19 @@
 const prisma = require('../lib/prisma');
 
-// Subir una nueva historia
+// Subir una nueva historia (JSON con mediaUrl o multipart con archivo `media`)
 const createStory = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { mediaUrl, mediaType, caption } = req.body;
-    
+    let { mediaUrl, mediaType, caption, activityId } = req.body;
+
+    if (req.file) {
+      const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+      mediaUrl = `${backendUrl}/uploads/${req.file.filename}`;
+      mediaType = mediaType || 'IMAGE';
+    }
+
     if (!mediaUrl || !mediaType) {
-      return res.status(400).json({ error: 'Faltan campos requeridos: mediaUrl y mediaType' });
+      return res.status(400).json({ error: 'Faltan campos requeridos: mediaUrl y mediaType (o archivo media)' });
     }
 
     // Historias expiran en 24 horas
@@ -18,9 +24,9 @@ const createStory = async (req, res) => {
         userId,
         mediaUrl,
         mediaType,
-        caption,
-        expiresAt
-      }
+        caption: caption || (activityId ? `Actividad ${activityId}` : null),
+        expiresAt,
+      },
     });
 
     res.status(201).json(story);
@@ -63,6 +69,7 @@ const getFeedStories = async (req, res) => {
             id: true,
             firstName: true,
             lastName: true,
+            username: true,
             avatarUrl: true
           }
         },

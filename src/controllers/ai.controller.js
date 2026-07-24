@@ -1,4 +1,5 @@
 const aiService = require('../services/ai.service');
+const { APP_BRAND_BADGE } = require('../constants/brand');
 const prisma = require('../lib/prisma');
 
 const analyzeActivity = async (req, res) => {
@@ -112,12 +113,12 @@ Distancia de carrera: ${raceDistance} km
 Desnivel: ${raceElevation} m
 ${targetTime ? `Tiempo objetivo: ${targetTime}` : ''}
 
-Incluye:
-1. Estrategia de ritmo por tramos
-2. Gestión de energía y nutrición
-3. Puntos clave del recorrido
-4. Plan de hidratación
-5. Estrategia mental
+Incluye secciones Markdown con ## (sin numeración) y viñetas (-):
+- Estrategia de ritmo por tramos
+- Gestión de energía y nutrición
+- Puntos clave del recorrido
+- Plan de hidratación
+- Estrategia mental
 `;
 
     const result = await aiService.analyzeActivity(
@@ -398,12 +399,12 @@ ${a.maxHr ? `FC máxima: ${a.maxHr} bpm` : ''}
 Fecha: ${a.startDate.toISOString().split('T')[0]}
 `).join('\n')}
 
-Proporciona:
-1. Análisis comparativo entre las actividades
-2. Tendencias y patrones observados
-3. Puntos fuertes y áreas de mejora
-4. Progresión del rendimiento
-5. Recomendaciones específicas basadas en el conjunto
+Responde en Markdown móvil: secciones ## sin numerar y viñetas (-):
+- Análisis comparativo entre las actividades
+- Tendencias y patrones observados
+- Puntos fuertes y áreas de mejora
+- Progresión del rendimiento
+- Recomendaciones específicas basadas en el conjunto
 `;
 
     const result = await aiService.analyzeActivity(
@@ -466,12 +467,12 @@ Ritmo: ${(a.movingTime / 60 / a.distanceKm).toFixed(2)} min/km
 ${a.averageHr ? `FC: ${a.averageHr} bpm` : ''}
 `).join('\n')}
 
-Proporciona:
-1. Comparación directa de rendimiento
-2. Diferencias en ritmo y esfuerzo
-3. Factores que explicaron las diferencias
-4. Lecciones aprendidas de cada actividad
-5. Recomendaciones para futuras sesiones
+Responde en Markdown móvil: secciones ## sin numerar y viñetas (-):
+- Comparación directa de rendimiento
+- Diferencias en ritmo y esfuerzo
+- Factores que explicaron las diferencias
+- Lecciones aprendidas de cada actividad
+- Recomendaciones para futuras sesiones
 `;
 
     const result = await aiService.analyzeActivity(
@@ -533,13 +534,13 @@ Resumen del período:
 - Distancia promedio: ${(activities.reduce((sum, a) => sum + a.distanceKm, 0) / activities.length).toFixed(2)} km
 - Ritmo promedio: ${(activities.reduce((sum, a) => sum + (a.movingTime / 60 / a.distanceKm), 0) / activities.length).toFixed(2)} min/km
 
-Proporciona:
-1. Tendencias de progreso o estancamiento
-2. Patrones de rendimiento semanal
-3. Variaciones en ritmo y esfuerzo
-4. Áreas de mejora identificadas
-5. Recomendaciones para el próximo período
-6. Objetivos realistas basados en las tendencias
+Responde en Markdown móvil: secciones ## sin numerar y viñetas (-):
+- Tendencias de progreso o estancamiento
+- Patrones de rendimiento semanal
+- Variaciones en ritmo y esfuerzo
+- Áreas de mejora identificadas
+- Recomendaciones para el próximo período
+- Objetivos realistas basados en las tendencias
 `;
 
     const result = await aiService.analyzeActivity(
@@ -600,7 +601,7 @@ const chatWithCoach = async (req, res) => {
       `- Fecha: ${a.startDate.toISOString().split('T')[0]} | Nombre: ${a.name} | Tipo: ${a.type} | Distancia: ${a.distanceKm.toFixed(2)} km | Desnivel: ${Math.round(a.elevationM)}m | Tiempo: ${Math.floor(a.movingTime/60)}m ${a.movingTime%60}s | FC Promedio: ${a.averageHr || 'N/A'} bpm`
     ).join('\n');
 
-    const systemPrompt = `Eres JNSIX AI Coach, un entrenador personal y consultor deportivo experto en triatlón, ciclismo, trail running y natación.
+    const systemPrompt = `Eres ${APP_BRAND_BADGE} AI Coach, un entrenador personal y consultor deportivo experto en triatlón, ciclismo, trail running y natación.
 Tu objetivo es guiar al atleta con respuestas basadas en la ciencia del deporte, siendo alentador, profesional y muy técnico.
 
 Aquí tienes el historial reciente de las últimas 15 actividades del atleta en la plataforma:
@@ -608,7 +609,8 @@ ${activitiesSummary || 'El atleta no tiene actividades registradas todavía.'}
 
 Usa este historial deportivo como contexto principal para responder preguntas sobre su volumen de entrenamiento, fatiga, consejos de recuperación, ritmos, progresiones y planeamiento de sesiones.
 Si te preguntan algo fuera de su contexto o de entrenamiento, redirígelos amablemente hacia su preparación física.
-Proporciona respuestas cortas, directas y formateadas en Markdown claras y legibles en dispositivos móviles. No utilices ningún tipo de emoji en tus respuestas, solo texto plano o markdown.`;
+Proporciona respuestas cortas, directas y formateadas en Markdown claras y legibles en dispositivos móviles.
+Formato Markdown preferido: títulos ## sin numeración, viñetas (-) en lugar de listas numeradas, párrafos breves y escaneables. No utilices ningún tipo de emoji en tus respuestas, solo texto plano o markdown.`;
 
     const result = await aiService.chatWithCoach(systemPrompt, messages);
 
@@ -695,7 +697,7 @@ const analyzeCompetitionGoal = async (req, res) => {
     }).join('\n\n');
 
     // 4. Formular el prompt científico-deportivo integral
-    const systemPrompt = `Eres JNSIX AI Strategy Coach, un director deportivo e ingeniero de rendimiento experto en planificación, ritmo (pacing) y nutrición de ultra-distancia, trail running, ciclismo y triatlón.
+    const systemPrompt = `Eres ${APP_BRAND_BADGE} AI Strategy Coach, un director deportivo e ingeniero de rendimiento experto en planificación, ritmo (pacing) y nutrición de ultra-distancia, trail running, ciclismo y triatlón.
 Tu tarea es analizar el objetivo de competencia del atleta frente a su historial deportivo y sus entrenamientos de simulación específicos elegidos por él. Entregarás un reporte extremadamente profesional, motivador y con base científica en Markdown.`;
 
     const userPrompt = `Analiza mi preparación para la siguiente competencia objetivo:
@@ -716,26 +718,28 @@ ${activitiesSummary || 'Sin historial reciente cargado.'}
 ENTRENAMIENTOS DE SIMULACIÓN ESPECÍFICOS QUE HE SELECCIONADO PARA ESTA CARRERA:
 ${simulationsSummary || 'No he seleccionado simulaciones específicas todavía.'}
 
-Por favor, estructura tu reporte en las siguientes secciones exactas y legibles para móviles:
+Por favor, estructura tu reporte en estas secciones exactas (títulos ## sin numerar), legibles en móvil:
 
-### 1. EVALUACION DE PREPARACION Y CONFIANZA
-- Compara las distancias y desniveles de mis entrenamientos (tanto del historial como especialmente de las simulaciones seleccionadas) frente a los requisitos de la competencia.
-- Estima mi nivel de confianza y preparación física actual (escala del 1 al 10) y justifica el por qué.
+## Evaluación de preparación y confianza
+- Compara distancias y desniveles de mis entrenamientos (historial y simulaciones) frente a la competencia.
+- Estima mi confianza y preparación (1-10) y justifica.
 
-### 2. ESTRATEGIA DE RITMO Y PENDIENTES
-- Define cómo debo distribuir mi esfuerzo a lo largo de la carrera (estrategia conservadora, negativa, regular).
-- Ofrece pautas específicas de ritmo o esfuerzo según la pendiente (ej: cómo afrontar subidas duras y cuándo caminar activamente en Trail, o potencia en ciclismo).
+## Estrategia de ritmo y pendientes
+- Cómo distribuir el esfuerzo (conservadora, negativa, regular).
+- Pautas de ritmo/esfuerzo según pendiente (trail, bici, etc.).
 
-### 3. PLAN DE NUTRICION E HIDRATACION CIENTIFICA
-- Recomienda los gramos de carbohidratos óptimos por hora basados en la distancia y duración estimada.
-- Detalla un esquema de hidratación y reposición de sales minerales (sodio) según el esfuerzo.
-- Ofrece un plan de carga de carbohidratos para las 36 horas previas.
+## Plan de nutrición e hidratación
+- Gramos de carbohidratos por hora según distancia/duración estimada.
+- Hidratación y sodio según el esfuerzo.
+- Carga de carbohidratos 36 h previas.
 
-### 4. PLANIFICACION DE DESCARGA
-- Diseña una guía compacta de tapering para las últimas 2 o 3 semanas anteriores a la competencia, indicando a qué porcentajes reducir el volumen e intensidad de mis entrenamientos.
+## Planificación de descarga
+- Guía de tapering 2-3 semanas (porcentajes de volumen/intensidad).
 
-### 5. CONSEJOS TACTICOS Y MENTALES
-- Brinda 3 consejos clave específicos para el tipo de terreno/disciplina que me ayudarán a rendir al máximo.`;
+## Consejos tácticos y mentales
+- Tres consejos clave para el terreno/disciplina (como viñetas, sin numerar).
+
+Reglas de formato: Markdown limpio, ## sin números, viñetas con -, sin emojis, respuestas compactas.`;
 
     const result = await aiService.chatWithCoach(systemPrompt, [{ role: 'user', content: userPrompt }]);
 
@@ -818,6 +822,93 @@ const suggestComplementaryExercises = async (req, res) => {
   }
 };
 
+/**
+ * Briefing diario corto (reglas): carga aguda/crónica, racha y plan activo.
+ */
+const getDailyBriefing = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const now = new Date();
+    const dayMs = 7 * 24 * 60 * 60 * 1000;
+    const acuteFrom = new Date(now.getTime() - dayMs);
+    const chronicFrom = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+
+    const [acuteActs, chronicActs, recentForStreak, activeUserPlan] = await Promise.all([
+      prisma.activity.findMany({
+        where: { userId, startDate: { gte: acuteFrom } },
+        select: { distanceKm: true, movingTime: true },
+      }),
+      prisma.activity.findMany({
+        where: { userId, startDate: { gte: chronicFrom } },
+        select: { distanceKm: true },
+      }),
+      prisma.activity.findMany({
+        where: { userId },
+        select: { startDate: true },
+        orderBy: { startDate: 'desc' },
+        take: 120,
+      }),
+      prisma.userPlan.findFirst({
+        where: { userId, isActive: true, completed: false },
+        include: { plan: { select: { name: true } } },
+      }),
+    ]);
+
+    const acuteKm = acuteActs.reduce((s, a) => s + (Number(a.distanceKm) || 0), 0);
+    const chronicKm = chronicActs.reduce((s, a) => s + (Number(a.distanceKm) || 0), 0);
+    const chronicWeeklyAvg = chronicKm / 4 || 0.1;
+    const acwr = acuteKm / chronicWeeklyAvg;
+
+    let streak = 0;
+    const uniqueDays = [
+      ...new Set(
+        recentForStreak.map((a) => {
+          const d = new Date(a.startDate);
+          d.setHours(0, 0, 0, 0);
+          return d.getTime();
+        })
+      ),
+    ].sort((a, b) => b - a);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const oneDay = 24 * 60 * 60 * 1000;
+    let cursor = today.getTime();
+    if (uniqueDays[0] === cursor || uniqueDays[0] === cursor - oneDay) {
+      cursor = uniqueDays[0];
+      for (const day of uniqueDays) {
+        if (day === cursor) {
+          streak++;
+          cursor -= oneDay;
+        } else if (day < cursor) break;
+      }
+    }
+
+    const planName = activeUserPlan?.plan?.name;
+
+    let text;
+    if (acuteActs.length === 0) {
+      text = planName
+        ? `Sin actividad esta semana: retoma con una sesión ligera alineada a tu plan «${planName}».`
+        : 'Sin actividad esta semana: una salida corta hoy te devuelve el ritmo.';
+    } else if (acwr > 1.35) {
+      text = `Carga alta (ratio ~${acwr.toFixed(1)}): prioriza recuperación o volumen suave hoy.`;
+    } else if (acwr < 0.75) {
+      text = `Volumen bajo esta semana (~${acuteKm.toFixed(0)} km): buen momento para sumar kilómetros con calma.`;
+    } else if (streak >= 3) {
+      text = `Racha de ${streak} días y carga equilibrada: mantén la constancia con la sesión que toque en tu plan.`;
+    } else if (planName) {
+      text = `Carga estable (~${acuteKm.toFixed(0)} km/7d): sigue el plan «${planName}» con un día a la vez.`;
+    } else {
+      text = `Llevas ~${acuteKm.toFixed(0)} km en 7 días con carga moderada: escucha al cuerpo y ajusta el ritmo.`;
+    }
+
+    res.json({ text, briefing: text });
+  } catch (error) {
+    console.error('[ERROR] getDailyBriefing:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 module.exports = {
   analyzeActivity,
   generateTrainingPlan,
@@ -830,6 +921,7 @@ module.exports = {
   analyzeTrends,
   chatWithCoach,
   analyzeCompetitionGoal,
-  suggestComplementaryExercises
+  suggestComplementaryExercises,
+  getDailyBriefing,
 };
 

@@ -907,6 +907,152 @@ const updateAdminRewardStatus = async (req, res) => {
   }
 };
 
+// ==========================================
+// MISIONES
+// ==========================================
+const listMissions = async (req, res) => {
+  try {
+    const missions = await prisma.mission.findMany({ orderBy: { createdAt: 'desc' } });
+    res.json(missions);
+  } catch (error) {
+    console.error('[ERROR] listMissions:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const createMission = async (req, res) => {
+  try {
+    const { name, description, type, targetValue, rewardPts, startDate, endDate, isActive } = req.body;
+    if (!name || !type || targetValue == null) {
+      return res.status(400).json({ error: 'name, type y targetValue son obligatorios' });
+    }
+    const mission = await prisma.mission.create({
+      data: {
+        name,
+        description: description || '',
+        type,
+        targetValue: parseFloat(targetValue),
+        rewardPts: parseInt(rewardPts, 10) || 0,
+        startDate: startDate ? new Date(startDate) : null,
+        endDate: endDate ? new Date(endDate) : null,
+        isActive: isActive !== false,
+      },
+    });
+    await prisma.auditLog.create({
+      data: { userId: req.user.id, action: 'CREATE_MISSION', entityId: mission.id, entityType: 'MISSION' },
+    });
+    res.status(201).json(mission);
+  } catch (error) {
+    console.error('[ERROR] createMission:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const editMission = async (req, res) => {
+  try {
+    const data = { ...req.body };
+    if (data.targetValue != null) data.targetValue = parseFloat(data.targetValue);
+    if (data.rewardPts != null) data.rewardPts = parseInt(data.rewardPts, 10);
+    if (data.startDate) data.startDate = new Date(data.startDate);
+    if (data.endDate) data.endDate = new Date(data.endDate);
+    const mission = await prisma.mission.update({
+      where: { id: req.params.id },
+      data,
+    });
+    await prisma.auditLog.create({
+      data: { userId: req.user.id, action: 'EDIT_MISSION', entityId: mission.id, entityType: 'MISSION' },
+    });
+    res.json(mission);
+  } catch (error) {
+    console.error('[ERROR] editMission:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const deleteMission = async (req, res) => {
+  try {
+    await prisma.userMission.deleteMany({ where: { missionId: req.params.id } });
+    await prisma.mission.delete({ where: { id: req.params.id } });
+    await prisma.auditLog.create({
+      data: { userId: req.user.id, action: 'DELETE_MISSION', entityId: req.params.id, entityType: 'MISSION' },
+    });
+    res.json({ message: 'Misión eliminada' });
+  } catch (error) {
+    console.error('[ERROR] deleteMission:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+// ==========================================
+// LOGROS
+// ==========================================
+const listAdminAchievements = async (req, res) => {
+  try {
+    const achievements = await prisma.achievement.findMany({ orderBy: { points: 'asc' } });
+    res.json(achievements);
+  } catch (error) {
+    console.error('[ERROR] listAdminAchievements:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const createAchievement = async (req, res) => {
+  try {
+    const { name, description, points, iconUrl } = req.body;
+    if (!name) return res.status(400).json({ error: 'name es obligatorio' });
+    const achievement = await prisma.achievement.create({
+      data: {
+        name,
+        description: description || '',
+        points: parseInt(points, 10) || 0,
+        iconUrl: iconUrl || null,
+      },
+    });
+    await prisma.auditLog.create({
+      data: { userId: req.user.id, action: 'CREATE_ACHIEVEMENT', entityId: achievement.id, entityType: 'ACHIEVEMENT' },
+    });
+    res.status(201).json(achievement);
+  } catch (error) {
+    console.error('[ERROR] createAchievement:', error);
+    if (error.code === 'P2002') {
+      return res.status(409).json({ error: 'Ya existe un logro con ese nombre' });
+    }
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const editAchievement = async (req, res) => {
+  try {
+    const data = { ...req.body };
+    if (data.points != null) data.points = parseInt(data.points, 10);
+    const achievement = await prisma.achievement.update({
+      where: { id: req.params.id },
+      data,
+    });
+    await prisma.auditLog.create({
+      data: { userId: req.user.id, action: 'EDIT_ACHIEVEMENT', entityId: achievement.id, entityType: 'ACHIEVEMENT' },
+    });
+    res.json(achievement);
+  } catch (error) {
+    console.error('[ERROR] editAchievement:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const deleteAchievement = async (req, res) => {
+  try {
+    await prisma.userAchievement.deleteMany({ where: { achievementId: req.params.id } });
+    await prisma.achievement.delete({ where: { id: req.params.id } });
+    await prisma.auditLog.create({
+      data: { userId: req.user.id, action: 'DELETE_ACHIEVEMENT', entityId: req.params.id, entityType: 'ACHIEVEMENT' },
+    });
+    res.json({ message: 'Logro eliminado' });
+  } catch (error) {
+    console.error('[ERROR] deleteAchievement:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
 module.exports = {
   getStats,
   listUsers,
@@ -949,5 +1095,13 @@ module.exports = {
   suspendBusiness,
   sendTestNotification,
   listAdminRewards,
-  updateAdminRewardStatus
+  updateAdminRewardStatus,
+  listMissions,
+  createMission,
+  editMission,
+  deleteMission,
+  listAdminAchievements,
+  createAchievement,
+  editAchievement,
+  deleteAchievement,
 };

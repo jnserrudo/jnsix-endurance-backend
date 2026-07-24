@@ -1,13 +1,15 @@
 const cron = require('node-cron');
 const prisma = require('../lib/prisma');
 const { rotateFeaturedReward, expireRedemptions } = require('./marketplace.service');
+const { rotateMissions } = require('./missionRotation.service');
+const { sendWeeklyRecapNotifications } = require('./weeklyRecap.service');
+const { sendStreakAtRiskNotifications } = require('./streakAtRisk.service');
 
 const startCronJobs = () => {
   // Run every day at midnight (00:00)
   cron.schedule('0 0 * * *', async () => {
     console.log('Running daily cron jobs...');
     try {
-      // 1. Expire Subscriptions
       const now = new Date();
       const expiredSubscriptions = await prisma.subscription.updateMany({
         where: {
@@ -22,7 +24,6 @@ const startCronJobs = () => {
       });
       console.log(`Expired ${expiredSubscriptions.count} subscriptions.`);
 
-      // Demote users with expired subscriptions back to FREE
       const usersToDemote = await prisma.user.findMany({
         where: {
           subscriptionTier: { not: 'FREE' },
@@ -42,9 +43,30 @@ const startCronJobs = () => {
 
       await expireRedemptions();
       await rotateFeaturedReward();
+      await rotateMissions();
 
     } catch (error) {
       console.error('Error in daily cron jobs:', error);
+    }
+  });
+
+  // Todos los días 18:00 — racha en riesgo
+  cron.schedule('0 18 * * *', async () => {
+    console.log('Running streak-at-risk notifications...');
+    try {
+      await sendStreakAtRiskNotifications();
+    } catch (error) {
+      console.error('Error in streak-at-risk job:', error);
+    }
+  });
+
+  // Lunes 09:00 — resumen semanal in-app
+  cron.schedule('0 9 * * 1', async () => {
+    console.log('Running weekly recap notifications...');
+    try {
+      await sendWeeklyRecapNotifications();
+    } catch (error) {
+      console.error('Error in weekly recap job:', error);
     }
   });
 

@@ -71,4 +71,15 @@ router.get('/rewards', requirePermission('rewards.moderate'), adminController.li
 router.patch('/rewards/:id/status', requirePermission('rewards.moderate'), adminController.updateAdminRewardStatus);
 router.post('/notifications/test', adminController.sendTestNotification);
 
+// Misiones y Logros
+router.get('/missions', requirePermission('rankings.manage'), adminController.listMissions);
+router.post('/missions', requirePermission('rankings.manage'), adminController.createMission);
+router.put('/missions/:id', requirePermission('rankings.manage'), adminController.editMission);
+router.delete('/missions/:id', requirePermission('rankings.manage'), adminController.deleteMission);
+
+router.get('/achievements', requirePermission('rankings.manage'), adminController.listAdminAchievements);
+router.post('/achievements', requirePermission('rankings.manage'), adminController.createAchievement);
+router.put('/achievements/:id', requirePermission('rankings.manage'), adminController.editAchievement);
+router.delete('/achievements/:id', requirePermission('rankings.manage'), adminController.deleteAchievement);
+
 module.exports = router;

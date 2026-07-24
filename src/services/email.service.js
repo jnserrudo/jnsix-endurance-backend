@@ -1,15 +1,16 @@
 const validator = require('validator');
 const jwt = require('jsonwebtoken');
+const { APP_NAME } = require('../constants/brand');
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const API_KEY = process.env.BREVO_API_KEY;
 const FROM_EMAIL = process.env.FROM_EMAIL || 'jnserrudo@gmail.com';
-const FROM_NAME = process.env.FROM_NAME || 'Jnsix Sport';
+const FROM_NAME = process.env.FROM_NAME || APP_NAME;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const JWT_SECRET = process.env.JWT_SECRET;
 
 const generateUnsubscribeToken = (email) => {
-  return jwt.sign({ email, purpose: 'unsubscribe' }, JWT_SECRET, { expiresIn: '30d' });
+  return jwt.sign({ email, purpose: 'unsubscribe' }, JWT_SECRET, { expiresIn: '30d` });
 };
 
 const generateMarketingFooter = (email) => {
@@ -18,7 +19,7 @@ const generateMarketingFooter = (email) => {
   
   return `
     <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #333; text-align: center; font-size: 12px; color: #888;">
-      <p>Estás recibiendo este correo porque te registraste en JNSIX Endurance.</p>
+      <p>Estás recibiendo este correo porque te registraste en ${APP_NAME}.</p>
       <p>Si no deseas recibir más correos como este, puedes <a href="${unsubscribeUrl}" style="color: #4CAF50; text-decoration: underline;">desuscribirte aquí</a>.</p>
     </div>
   `;
@@ -45,7 +46,7 @@ const sendEmail = async (to, subject, text, html, isMarketing = false) => {
   };
 
   const response = await fetch(BREVO_API_URL, {
-    method: 'POST',
+    method: `POST',
     headers: {
       'api-key': API_KEY,
       'Content-Type': 'application/json',
@@ -64,7 +65,7 @@ const sendEmail = async (to, subject, text, html, isMarketing = false) => {
 };
 
 const sendVerificationOTP = async (email, otpCode, nombre) => {
-  const subject = 'Verifica tu cuenta - JNSIX Endurance';
+  const subject = `Verifica tu cuenta - ${APP_NAME}`;
   const text = `Hola ${nombre}, tu código de verificación es: ${otpCode}. Expira en 15 minutos.`;
   const html = `
     <div style="font-family: Arial, sans-serif; background-color: #1a1a1a; color: #ffffff; padding: 30px; text-align: center;">
@@ -80,7 +81,7 @@ const sendVerificationOTP = async (email, otpCode, nombre) => {
 };
 
 const sendResetPasswordEmail = async (email, resetToken, nombre) => {
-  const subject = 'Recuperación de contraseña - JNSIX Endurance';
+  const subject = `Recuperación de contraseña - ${APP_NAME}`;
   const resetUrl = `${FRONTEND_URL}/reset-password?token=${resetToken}`;
   const text = `Hola ${nombre}, has solicitado restablecer tu contraseña. Haz clic aquí: ${resetUrl}`;
   const html = `
@@ -97,7 +98,7 @@ const sendResetPasswordEmail = async (email, resetToken, nombre) => {
 };
 
 const sendWelcomeEmail = async (email, nombre) => {
-  const subject = '¡Bienvenido a JNSIX Endurance!';
+  const subject = `¡Bienvenido a ${APP_NAME}!`;
   const text = `Hola ${nombre}, tu cuenta ha sido verificada con éxito. ¡A entrenar!`;
   const html = `
     <div style="font-family: Arial, sans-serif; background-color: #1a1a1a; color: #ffffff; padding: 30px; text-align: center;">
@@ -136,7 +137,7 @@ const sendAdminAlert = async (emails, data) => {
 };
 
 const sendWeeklyReport = async (email, data, nombreAdmin) => {
-  const subject = `Reporte Semanal JNSIX Endurance - ${data.period}`;
+  const subject = `Reporte Semanal ${APP_NAME} - ${data.period}`;
   const text = `Reporte Semanal. Usuarios Activos: ${data.activeUsers}. Actividades Sincronizadas: ${data.totalActivities}.`;
   const html = `
     <div style="font-family: Arial, sans-serif; background-color: #1a1a1a; color: #ffffff; padding: 30px;">

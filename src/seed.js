@@ -207,6 +207,13 @@ async function main() {
     console.log('Comparison created:', comparison.name);
   }
 
+  try {
+    const { seedMissions } = require('../seed_missions');
+    await seedMissions(prisma);
+  } catch (e) {
+    console.warn('Mission seed skipped:', e.message);
+  }
+
   console.log('Seed completed successfully!');
 }
 

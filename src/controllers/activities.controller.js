@@ -8,7 +8,27 @@ const syncQueueService = require('../services/syncQueue.service');
 const scoringService = require('../services/scoring.service');
 const challengesService = require('../services/challenges.service');
 const gamificationService = require('../services/gamification.service');
+const achievementsController = require('./achievements.controller');
+const { detectPersonalRecords } = require('../services/personalRecords.service');
 const prisma = require('../lib/prisma');
+
+async function collectPostCreateExtras(userId, activity, { personalRecords = false } = {}) {
+  const extras = { unlockedAchievements: [] };
+  try {
+    extras.unlockedAchievements = await achievementsController.checkAchievements(userId);
+  } catch (err) {
+    console.error('[Achievements] check after activity:', err.message);
+  }
+  if (personalRecords) {
+    try {
+      extras.personalRecords = await detectPersonalRecords(userId, activity);
+    } catch (err) {
+      console.error('[PersonalRecords] detect failed:', err.message);
+      extras.personalRecords = [];
+    }
+  }
+  return extras;
+}
 
 const buildActivityScoringPayload = async (userId, activity) => {
   const scoreResult = await scoringService.awardActivityPointsIfNotScored(activity.id);
@@ -142,6 +162,10 @@ const getActivityById = async (req, res) => {
         laps: {
           orderBy: { splitNum: 'asc' }
         },
+        photos: {
+          orderBy: { order: 'asc' }
+        },
+        effortLog: true,
         user: {
           select: { 
             id: true, 
@@ -242,12 +266,21 @@ const getActivityById = async (req, res) => {
               rawData: detailedActivity,
               elevationM: detailedActivity.total_elevation_gain || activity.elevationM,
               movingTime: detailedActivity.moving_time || activity.movingTime,
-              distanceKm: detailedActivity.distance ? (detailedActivity.distance / 1000) : activity.distanceKm
+              distanceKm: detailedActivity.distance ? (detailedActivity.distance / 1000) : activity.distanceKm,
+              mapPolyline:
+                detailedActivity.map?.summary_polyline ||
+                detailedActivity.map?.polyline ||
+                activity.mapPolyline ||
+                null,
             },
             include: {
               laps: {
                 orderBy: { splitNum: 'asc' }
               },
+              photos: {
+                orderBy: { order: 'asc' }
+              },
+              effortLog: true,
               user: {
                 select: { id: true, email: true, role: true }
               }
@@ -297,8 +330,9 @@ const createActivity = async (req, res) => {
     });
 
     const scoring = await safeScoreActivity(userId, activity);
+    const extras = await collectPostCreateExtras(userId, activity);
 
-    res.status(201).json({ ...activity, scoring });
+    res.status(201).json({ ...activity, scoring, ...extras });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -344,6 +378,7 @@ const uploadActivity = async (req, res) => {
         fileUrl: uploadResult.url,
         fileType: fileExt.replace('.', '').toUpperCase(),
         rawData: parsedData.rawData,
+        mapPolyline: parsedData.mapPolyline || null,
         isExternal: true,
         laps: {
           create: parsedData.laps || []
@@ -352,7 +387,8 @@ const uploadActivity = async (req, res) => {
       include: {
         laps: {
           orderBy: { splitNum: 'asc' }
-        }
+        },
+        photos: true
       }
     });
 
@@ -361,7 +397,8 @@ const uploadActivity = async (req, res) => {
     });
 
     const scoring = await safeScoreActivity(userId, activity);
-    res.status(201).json({ ...activity, scoring });
+    const extras = await collectPostCreateExtras(userId, activity);
+    res.status(201).json({ ...activity, scoring, ...extras });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -435,6 +472,7 @@ const importFromLink = async (req, res) => {
         maxHr: stravaActivity.max_heartrate || null,
         calories: stravaActivity.calories || null,
         isExternal: true,
+        mapPolyline: stravaActivity.map?.summary_polyline || stravaActivity.map?.polyline || null,
         rawData: stravaActivity,
         laps: {
           create: lapsToCreate
@@ -450,7 +488,8 @@ const importFromLink = async (req, res) => {
     });
 
     const scoring = await safeScoreActivity(userId, activity);
-    res.status(201).json({ ...activity, scoring });
+    const extras = await collectPostCreateExtras(userId, activity);
+    res.status(201).json({ ...activity, scoring, ...extras });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -532,18 +571,52 @@ const updateActivity = async (req, res) => {
       return res.status(404).json({ error: 'Activity not found' });
     }
 
+    const data = {};
+    if (updates.name != null) data.name = updates.name;
+    if (updates.type != null) data.type = updates.type;
+    if (updates.distanceKm != null) data.distanceKm = parseFloat(updates.distanceKm) || 0;
+    if (updates.elevationM != null) data.elevationM = parseFloat(updates.elevationM) || 0;
+    if (updates.movingTime != null) data.movingTime = parseInt(updates.movingTime, 10) || 0;
+    if (updates.startDate != null) data.startDate = new Date(updates.startDate);
+    if (updates.description !== undefined) data.description = updates.description || null;
+    if (updates.averageHr !== undefined) data.averageHr = updates.averageHr != null ? parseInt(updates.averageHr, 10) : null;
+    if (updates.maxHr !== undefined) data.maxHr = updates.maxHr != null ? parseInt(updates.maxHr, 10) : null;
+    if (updates.calories !== undefined) data.calories = updates.calories != null ? parseInt(updates.calories, 10) : null;
+    if (updates.visibility != null) data.visibility = updates.visibility;
+    if (updates.mapPolyline !== undefined) data.mapPolyline = updates.mapPolyline || null;
+    if (updates.privateNotes !== undefined) data.privateNotes = updates.privateNotes || null;
+
+    if (updates.extraFields != null || updates.feeling != null) {
+      const prev = (activity.rawData && typeof activity.rawData === 'object') ? activity.rawData : {};
+      data.rawData = {
+        ...prev,
+        ...(updates.extraFields != null ? { extraFields: updates.extraFields } : {}),
+        ...(updates.feeling != null ? { feeling: updates.feeling } : {}),
+      };
+    }
+
     const updatedActivity = await prisma.activity.update({
       where: { id },
-      data: {
-        name: updates.name,
-        type: updates.type
-      },
+      data,
       include: {
-        laps: {
-          orderBy: { splitNum: 'asc' }
-        }
+        laps: { orderBy: { splitNum: 'asc' } },
+        photos: { orderBy: { order: 'asc' } },
+        effortLog: true,
       }
     });
+
+    if (updates.rpe != null) {
+      await prisma.effortLog.upsert({
+        where: { activityId: id },
+        update: { rpe: parseInt(updates.rpe, 10) || 5, notes: updates.notes || null },
+        create: {
+          userId,
+          activityId: id,
+          rpe: parseInt(updates.rpe, 10) || 5,
+          notes: updates.notes || null,
+        },
+      });
+    }
 
     res.json(updatedActivity);
   } catch (error) {
@@ -722,6 +795,7 @@ const syncStravaActivities = async (req, res) => {
           maxHr: stravaActivity.max_heartrate ? Math.round(stravaActivity.max_heartrate) : null,
           calories: stravaActivity.calories || null,
           isExternal: true,
+          mapPolyline: stravaActivity.map?.summary_polyline || stravaActivity.map?.polyline || null,
           rawData: stravaActivity
         }));
 
@@ -1107,14 +1181,56 @@ const createManualActivity = async (req, res) => {
       console.warn('[CREATE ACTIVITY] Warning: Error al parsear coordinates/mapPolyline', err.message);
     }
 
+    const dist = parseFloat(distanceKm) || 0;
+    const moveSecs = parseInt(movingTime, 10) || 0;
+    const elev = parseFloat(elevationM) || 0;
+    let lapsToCreate = Array.isArray(laps) && laps.length > 0
+      ? laps.map((lap, index) => ({
+          splitNum: lap.splitNum || index + 1,
+          distance: parseFloat(lap.distance) || 0,
+          elevationGain: parseFloat(lap.elevationGain) || 0,
+          averagePace: parseFloat(lap.averagePace) || 0,
+          averageHr: lap.averageHr ? parseInt(lap.averageHr, 10) : null,
+          maxHr: lap.maxHr ? parseInt(lap.maxHr, 10) : null,
+        }))
+      : [];
+
+    // Generar laps por km si hay GPS/distancia y no vinieron laps
+    if (lapsToCreate.length === 0 && dist >= 1 && moveSecs > 0) {
+      const paceMinPerKm = (moveSecs / 60) / dist;
+      const elevPerKm = elev / dist;
+      const fullKm = Math.floor(dist);
+      for (let i = 1; i <= fullKm; i++) {
+        lapsToCreate.push({
+          splitNum: i,
+          distance: 1,
+          elevationGain: elevPerKm,
+          averagePace: paceMinPerKm,
+          averageHr: averageHr ? parseInt(averageHr, 10) : null,
+          maxHr: null,
+        });
+      }
+      const rem = dist - fullKm;
+      if (rem > 0.05) {
+        lapsToCreate.push({
+          splitNum: fullKm + 1,
+          distance: rem,
+          elevationGain: elevPerKm * rem,
+          averagePace: paceMinPerKm,
+          averageHr: averageHr ? parseInt(averageHr, 10) : null,
+          maxHr: null,
+        });
+      }
+    }
+
     const activity = await prisma.activity.create({
       data: {
         user: { connect: { id: userId } },
         name,
         type,
-        distanceKm: parseFloat(distanceKm) || 0,
-        elevationM: parseFloat(elevationM) || 0,
-        movingTime: parseInt(movingTime) || 0,
+        distanceKm: dist,
+        elevationM: elev,
+        movingTime: moveSecs,
         startDate: new Date(startDate),
         description: description || null,
         averageHr: averageHr ? parseInt(averageHr) : null,
@@ -1130,16 +1246,7 @@ const createManualActivity = async (req, res) => {
         },
         isExternal: false,
         laps: {
-          create: Array.isArray(laps) && laps.length > 0
-            ? laps.map((lap, index) => ({
-                splitNum: lap.splitNum || index + 1,
-                distance: parseFloat(lap.distance) || 0,
-                elevationGain: parseFloat(lap.elevationGain) || 0,
-                averagePace: parseFloat(lap.averagePace) || 0,
-                averageHr: lap.averageHr ? parseInt(lap.averageHr) : null,
-                maxHr: lap.maxHr ? parseInt(lap.maxHr) : null
-              }))
-            : []
+          create: lapsToCreate
         }
       },
       include: {
@@ -1160,7 +1267,8 @@ const createManualActivity = async (req, res) => {
       });
     }
 
-    res.status(201).json({ ...activity, scoring });
+    const extras = await collectPostCreateExtras(userId, activity, { personalRecords: true });
+    res.status(201).json({ ...activity, scoring, ...extras });
   } catch (error) {
     console.error('[ERROR] [CREATE MANUAL ACTIVITY] Error:', error.message);
     console.error('[ERROR]', error);
@@ -1217,6 +1325,27 @@ const uploadActivityPhotos = async (req, res) => {
   }
 };
 
+const deleteActivityPhoto = async (req, res) => {
+  try {
+    const { id, photoId } = req.params;
+    const userId = req.user.id;
+
+    const activity = await prisma.activity.findFirst({ where: { id, userId } });
+    if (!activity) return res.status(404).json({ error: 'Actividad no encontrada' });
+
+    const photo = await prisma.activityPhoto.findFirst({
+      where: { id: photoId, activityId: id },
+    });
+    if (!photo) return res.status(404).json({ error: 'Foto no encontrada' });
+
+    await prisma.activityPhoto.delete({ where: { id: photoId } });
+    res.json({ message: 'Foto eliminada' });
+  } catch (error) {
+    console.error('[ERROR] deleteActivityPhoto:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 module.exports = {
   getActivities,
   getActivityById,
@@ -1224,6 +1353,7 @@ module.exports = {
   createManualActivity,
   uploadActivity,
   uploadActivityPhotos,
+  deleteActivityPhoto,
   importFromLink,
   getSharedActivity,
   shareActivity,

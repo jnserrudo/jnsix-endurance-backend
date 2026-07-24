@@ -1,5 +1,7 @@
 const prisma = require('../lib/prisma');
 const scoringService = require('./scoring.service');
+const { copy } = require('../constants/copy.es');
+const { activeMissionWhere } = require('./missionRotation.service');
 
 class GamificationService {
   async updateStreak(userId) {
@@ -64,8 +66,9 @@ class GamificationService {
   async checkMissionsForActivity(userId, activity) {
     try {
       const currentStreak = await this.updateStreak(userId);
+      const now = new Date();
       const activeMissions = await prisma.mission.findMany({
-        where: { isActive: true }
+        where: activeMissionWhere(now),
       });
 
       const completedMissions = [];
@@ -78,18 +81,25 @@ class GamificationService {
         if (userMission && userMission.completed) continue;
 
         let increment = 0;
-        if (mission.type === 'FIRST_ACTIVITY') {
+        const type = mission.type || '';
+
+        if (type === 'FIRST_ACTIVITY' || type === 'DAILY_ACTIVITY' || type === 'WEEKLY_ACTIVITY_COUNT') {
           increment = 1;
-        } else if (mission.type === 'TOTAL_DISTANCE') {
+        } else if (
+          type === 'TOTAL_DISTANCE' ||
+          type === 'DAILY_DISTANCE' ||
+          type === 'WEEKLY_DISTANCE' ||
+          type.endsWith('_DISTANCE')
+        ) {
           increment = activity.distanceKm || 0;
-        } else if (mission.type === 'STREAK') {
+        } else if (type === 'STREAK') {
           if (currentStreak >= mission.targetValue) {
             increment = mission.targetValue;
           }
         }
 
-        if (increment > 0 || mission.type === 'STREAK') {
-          const newProgress = mission.type === 'STREAK'
+        if (increment > 0 || type === 'STREAK') {
+          const newProgress = type === 'STREAK'
             ? Math.max(userMission?.currentProgress || 0, currentStreak)
             : (userMission?.currentProgress || 0) + increment;
 
@@ -125,7 +135,7 @@ class GamificationService {
             if (!existingMissionScore) {
               await scoringService.awardPoints(userId, {
                 points: mission.rewardPts,
-                reason: `Mission completed: ${mission.title}`,
+                reason: copy.missionCompleted(mission.name),
                 missionId: mission.id
               });
               completedMissions.push({ mission, points: mission.rewardPts });

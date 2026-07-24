@@ -27,10 +27,11 @@ const getStreak = async (req, res) => {
 const getMissions = async (req, res) => {
   try {
     const userId = req.user.id;
-    
-    // Fetch all active missions
+    const { activeMissionWhere } = require('../services/missionRotation.service');
+    const now = new Date();
+
     const missions = await prisma.mission.findMany({
-      where: { isActive: true },
+      where: activeMissionWhere(now),
       include: {
         userMissions: {
           where: { userId }
@@ -38,7 +39,6 @@ const getMissions = async (req, res) => {
       }
     });
 
-    // Format missions with user progress
     const formattedMissions = missions.map(mission => {
       const userMission = mission.userMissions[0] || null;
       return {

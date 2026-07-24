@@ -137,52 +137,102 @@ ${activity.maxHr ? `FC máxima: ${activity.maxHr} bpm` : ''}
     const prompts = {
       TRAINING_RECOMMENDATION: `${baseInfo}
 
-Basándote en estos datos, proporciona:
-1. Evaluación del rendimiento en esta sesión
-2. Recomendaciones específicas para mejorar
-3. Sugerencias de entrenamientos complementarios
-4. Aspectos a trabajar en próximas sesiones`,
+Responde en Markdown legible en móvil: secciones con ## (sin numeración) y viñetas (-), no outlines numerados.
+
+## Evaluacion del rendimiento
+- Resumen de cómo se ejecutó esta sesión
+
+## Recomendaciones
+- Acciones concretas para mejorar
+
+## Entrenamientos complementarios
+- Sugerencias de sesiones de apoyo
+
+## Proximas sesiones
+- Aspectos a trabajar`,
 
       PERFORMANCE_ANALYSIS: `${baseInfo}
 
-Analiza el rendimiento en detalle:
-1. Análisis del ritmo y consistencia
-2. Gestión del desnivel
-3. Respuesta cardiovascular
-4. Puntos fuertes y áreas de mejora
-5. Comparación con estándares para este tipo de actividad`,
+Responde en Markdown legible en móvil: secciones con ## (sin numeración) y viñetas (-), no outlines numerados.
+
+## Ritmo y consistencia
+- Análisis del ritmo y su estabilidad
+
+## Gestion del desnivel
+- Cómo se afrontaron las pendientes
+
+## Respuesta cardiovascular
+- Lectura de FC y esfuerzo
+
+## Fortalezas y mejoras
+- Puntos fuertes y áreas a trabajar
+
+## Comparacion con estandares
+- Contexto frente a estándares para este tipo de actividad`,
 
       RACE_STRATEGY: `${baseInfo}
 
-Proporciona una estrategia de carrera para una competición similar:
-1. Estrategia de ritmo recomendada
-2. Gestión de la energía y nutrición
-3. Puntos clave a considerar en el recorrido
-4. Tiempo objetivo realista`,
+Responde en Markdown legible en móvil: secciones con ## (sin numeración) y viñetas (-), no outlines numerados.
+
+## Estrategia de ritmo
+- Ritmo recomendado para una competición similar
+
+## Energia y nutricion
+- Gestión de energía e hidratación/nutrición
+
+## Puntos clave del recorrido
+- Momentos críticos a planificar
+
+## Tiempo objetivo
+- Estimación realista de tiempo`,
 
       FATIGUE_ANALYSIS: `${baseInfo}
 
-Evalúa el nivel de fatiga y recuperación:
-1. Indicadores de fatiga en los datos
-2. Tiempo de recuperación recomendado
-3. Actividades de recuperación sugeridas
-4. Señales de alerta a monitorear`,
+Responde en Markdown legible en móvil: secciones con ## (sin numeración) y viñetas (-), no outlines numerados.
+
+## Indicadores de fatiga
+- Señales observadas en los datos
+
+## Recuperacion recomendada
+- Tiempo de descanso sugerido
+
+## Actividades de recuperacion
+- Sesiones o hábitos de recovery
+
+## Senales de alerta
+- Qué monitorear en los próximos días`,
 
       TIME_PREDICTION: `${baseInfo}
 
-Predice tiempos para diferentes distancias:
-1. Estimación para 5K, 10K, 21K, 42K
-2. Factores que pueden afectar el rendimiento
-3. Margen de mejora potencial
-4. Entrenamientos clave para alcanzar objetivos`,
+Responde en Markdown legible en móvil: secciones con ## (sin numeración) y viñetas (-), no outlines numerados.
+
+## Estimaciones de tiempo
+- Predicciones para 5K, 10K, 21K y 42K
+
+## Factores que afectan
+- Variables que pueden alterar el rendimiento
+
+## Margen de mejora
+- Potencial realista de mejora
+
+## Entrenamientos clave
+- Sesiones prioritarias para alcanzar objetivos`,
 
       GENERAL_INSIGHT: `${baseInfo}
 
-Proporciona insights generales sobre esta actividad:
-1. Aspectos destacados
-2. Observaciones técnicas
-3. Consejos prácticos
-4. Motivación y perspectiva`
+Responde en Markdown legible en móvil: secciones con ## (sin numeración) y viñetas (-), no outlines numerados.
+
+## Aspectos destacados
+- Lo más relevante de la sesión
+
+## Observaciones tecnicas
+- Detalles técnicos útiles
+
+## Consejos practicos
+- Acciones concretas
+
+## Motivacion
+- Perspectiva y refuerzo positivo`
     };
 
     return prompts[analysisType] || prompts.GENERAL_INSIGHT;

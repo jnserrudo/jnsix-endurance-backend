@@ -18,5 +18,6 @@ router.post('/analyze-competition/:id', checkPlanLimit('ai_coach.daily_limit'), 
 router.get('/history', aiController.getAnalysisHistory);
 router.get('/usage', aiController.getUsageStats);
 router.get('/exercise-suggestions', aiController.suggestComplementaryExercises);
+router.get('/daily-briefing', aiController.getDailyBriefing);
 
 module.exports = router;

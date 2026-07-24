@@ -23,6 +23,7 @@ router.post('/', activitiesController.createActivity);
 router.post('/manual', activitiesController.createManualActivity);
 router.post('/upload', uploadActivityFile.single('file'), activitiesController.uploadActivity);
 router.post('/:id/photos', uploadImage.array('photos', 5), activitiesController.uploadActivityPhotos);
+router.delete('/:id/photos/:photoId', activitiesController.deleteActivityPhoto);
 router.post('/import-link', activitiesController.importFromLink);
 router.post('/:id/share', activitiesController.shareActivity);
 router.put('/:id', activitiesController.updateActivity);

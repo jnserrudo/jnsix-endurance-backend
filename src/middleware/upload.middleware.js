@@ -54,4 +54,18 @@ const uploadImage = multer({
   fileFilter: imageFilter
 });
 
-module.exports = { uploadActivityFile, uploadImage };
+const storyMediaFilter = (req, file, cb) => {
+  if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Solo se permiten imágenes o videos'), false);
+  }
+};
+
+const uploadStoryMedia = multer({
+  storage: imageStorage,
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: storyMediaFilter
+});
+
+module.exports = { uploadActivityFile, uploadImage, uploadStoryMedia };

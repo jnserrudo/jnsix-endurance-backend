@@ -268,7 +268,7 @@ const awardActivityPoints = async (activityId) => {
   const points = calculateActivityPoints(activity);
   const result = await awardPoints(activity.userId, {
     points,
-    reason: `Activity completed: ${activity.name}`,
+    reason: require('../constants/copy.es').copy.activityCompleted(activity.name),
     activityId: activity.id
   });
 
@@ -316,7 +316,7 @@ const awardWorkoutPoints = async (sessionId) => {
   const points = calculateWorkoutPoints(session.sets);
   const result = await awardPoints(session.userId, {
     points,
-    reason: `Workout session completed: ${session.name}`,
+    reason: require('../constants/copy.es').copy.workoutCompleted(session.name),
     workoutId: sessionId
   });
 
@@ -327,17 +327,20 @@ const awardStreakBonusIfEligible = async (userId, currentStreak) => {
   const bonusPoints = STREAK_BONUSES[currentStreak];
   if (!bonusPoints) return null;
 
+  const { copy } = require('../constants/copy.es');
+  const reason = copy.streakBonus(currentStreak);
+
   const existing = await prisma.scoreEvent.findFirst({
     where: {
       userId,
-      reason: { contains: `Streak bonus: ${currentStreak} days` }
+      reason: { contains: copy.streakBonusContains(currentStreak) }
     }
   });
   if (existing) return null;
 
   return awardPoints(userId, {
     points: bonusPoints,
-    reason: `Streak bonus: ${currentStreak} days`
+    reason
   });
 };
 

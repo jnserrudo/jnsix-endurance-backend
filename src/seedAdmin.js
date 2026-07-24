@@ -206,6 +206,13 @@ async function main() {
   }
   console.log(`Categories seeded: ${CATEGORIES.length}`);
 
+  try {
+    const { seedMissions } = require('../seed_missions');
+    await seedMissions(prisma);
+  } catch (e) {
+    console.warn('Mission seed skipped:', e.message);
+  }
+
   console.log('Admin/RBAC seed completed successfully!');
 }
 
