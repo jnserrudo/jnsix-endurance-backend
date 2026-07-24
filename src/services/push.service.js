@@ -45,6 +45,12 @@ const sendPushToUser = async (userId, title, body, data = {}) => {
 
   if (tokens.length === 0) return [];
 
+  // Expo data: incluir type en raíz para deep link al tocar
+  const pushData = {
+    ...(typeof data === 'object' && data ? data : {}),
+    type: data?.type || data?.screen || undefined
+  };
+
   const messages = tokens
     .filter(t => Expo.isExpoPushToken(t.token))
     .map(t => ({
@@ -52,7 +58,7 @@ const sendPushToUser = async (userId, title, body, data = {}) => {
       sound: 'default',
       title,
       body,
-      data
+      data: pushData
     }));
 
   if (messages.length === 0) return [];

@@ -17,6 +17,18 @@ const getNotifications = async (req, res) => {
   }
 };
 
+const getUnreadCount = async (req, res) => {
+  try {
+    const count = await prisma.notification.count({
+      where: { userId: req.user.id, read: false }
+    });
+    res.json({ count });
+  } catch (error) {
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 const markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
@@ -108,6 +120,7 @@ const sendPushNotification = async (req, res) => {
 
 module.exports = {
   getNotifications,
+  getUnreadCount,
   markAsRead,
   markAllAsRead,
   registerPushToken,

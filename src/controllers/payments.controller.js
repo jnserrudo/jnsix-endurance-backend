@@ -28,14 +28,12 @@ const requestManualPayment = async (req, res) => {
     });
 
     // Notificar a todos los admins
-    const admins = await prisma.user.findMany({ where: { role: 'ADMIN' } });
-    for (const admin of admins) {
-      await notify(admin.id, 'PAYMENT_REVIEW', {
-        title: 'Nuevo Comprobante de Pago',
-        body: `El usuario ${req.user.email} subió un comprobante para el plan ${planName}.`,
-        payload: { transactionId: transaction.id, type: 'PAYMENT_REVIEW' }
-      });
-    }
+    const { notifyAdmins } = require('../services/notifications.service');
+    await notifyAdmins('PAYMENT_REVIEW', {
+      title: 'Nuevo Comprobante de Pago',
+      body: `El usuario ${req.user.email} subió un comprobante para el plan ${planName}.`,
+      payload: { transactionId: transaction.id, type: 'PAYMENT_REVIEW', screen: 'AdminPayments' }
+    });
 
     res.status(201).json({ message: 'Comprobante subido exitosamente', transaction });
   } catch (error) {

@@ -66,5 +66,6 @@ router.get('/businesses', requirePermission('businesses.moderate'), adminControl
 router.patch('/businesses/:id/approve', requirePermission('businesses.moderate'), adminController.approveBusiness);
 router.patch('/businesses/:id/reject', requirePermission('businesses.moderate'), adminController.rejectBusiness);
 router.patch('/businesses/:id/suspend', requirePermission('businesses.moderate'), adminController.suspendBusiness);
+router.post('/notifications/test', adminController.sendTestNotification);
 
 module.exports = router;

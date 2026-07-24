@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const bcrypt = require('bcrypt');
+const { notify } = require('../services/notifications.service');
 
 // ==========================================
 // ESTADÍSTICAS DEL SISTEMA
@@ -12,11 +13,13 @@ const getStats = async (req, res) => {
       _sum: { amount: true },
       where: { status: 'COMPLETED' }
     });
+    const pendingBusinesses = await prisma.business.count({ where: { status: 'PENDING' } });
     
     res.json({
       totalUsers,
       activeUsers,
-      totalRevenue: transactions._sum.amount || 0
+      totalRevenue: transactions._sum.amount || 0,
+      pendingBusinesses
     });
   } catch (error) {
     console.error('[ERROR]', error);
@@ -742,6 +745,21 @@ const approveBusiness = async (req, res) => {
         rejectionReason: null
       }
     });
+
+    try {
+      await notify(business.userId, 'BUSINESS_STATUS', {
+        title: 'Negocio aprobado',
+        body: `"${business.name}" ya puede publicar beneficios en el Club.`,
+        payload: {
+          type: 'BUSINESS_STATUS',
+          status: 'APPROVED',
+          businessId: business.id
+        }
+      });
+    } catch (notifyErr) {
+      console.error('[ERROR] approveBusiness notify:', notifyErr.message);
+    }
+
     res.json(business);
   } catch (error) {
     console.error('[ERROR] approveBusiness:', error);
@@ -759,6 +777,23 @@ const rejectBusiness = async (req, res) => {
         rejectionReason: reason || 'Rejected by admin'
       }
     });
+
+    try {
+      await notify(business.userId, 'BUSINESS_STATUS', {
+        title: 'Solicitud rechazada',
+        body: reason
+          ? `"${business.name}" fue rechazado: ${reason}`
+          : `"${business.name}" fue rechazado por un administrador.`,
+        payload: {
+          type: 'BUSINESS_STATUS',
+          status: 'REJECTED',
+          businessId: business.id
+        }
+      });
+    } catch (notifyErr) {
+      console.error('[ERROR] rejectBusiness notify:', notifyErr.message);
+    }
+
     res.json(business);
   } catch (error) {
     console.error('[ERROR] rejectBusiness:', error);
@@ -776,6 +811,45 @@ const suspendBusiness = async (req, res) => {
   } catch (error) {
     console.error('[ERROR] suspendBusiness:', error);
     res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+/** Envía una notificación de prueba al admin autenticado (para verificar campanita + deep link). */
+const sendTestNotification = async (req, res) => {
+  try {
+    const target = (req.body?.target || 'businesses').toString();
+    const map = {
+      businesses: {
+        type: 'BUSINESS_PENDING',
+        title: 'Prueba: negocio pendiente',
+        body: 'Tocá esta notificación para ir a Negocios / Marketplace.',
+        payload: { type: 'BUSINESS_PENDING', screen: 'AdminBusinesses' }
+      },
+      payments: {
+        type: 'PAYMENT_REVIEW',
+        title: 'Prueba: pago pendiente',
+        body: 'Tocá esta notificación para ir a Pagos.',
+        payload: { type: 'PAYMENT_REVIEW', screen: 'AdminPayments' }
+      },
+      system: {
+        type: 'SYSTEM',
+        title: 'Prueba del sistema',
+        body: 'Si ves esto en la campanita, las notificaciones in-app funcionan.',
+        payload: { type: 'SYSTEM' }
+      }
+    };
+    const cfg = map[target] || map.businesses;
+
+    const notification = await notify(req.user.id, cfg.type, {
+      title: cfg.title,
+      body: cfg.body,
+      payload: cfg.payload
+    });
+
+    res.json({ ok: true, notification });
+  } catch (error) {
+    console.error('[ERROR] sendTestNotification:', error);
+    res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 };
 
@@ -818,5 +892,6 @@ module.exports = {
   listBusinesses,
   approveBusiness,
   rejectBusiness,
-  suspendBusiness
+  suspendBusiness,
+  sendTestNotification
 };

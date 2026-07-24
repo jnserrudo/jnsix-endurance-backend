@@ -3,11 +3,20 @@ const { emitToUser } = require('./socket.service');
 const pushService = require('./push.service');
 const emailService = require('./email.service');
 
+/** Tipos que también mandan email (el resto: in-app + push). */
+const EMAIL_NOTIFICATION_TYPES = new Set([
+  'BUSINESS_PENDING',
+  'BUSINESS_STATUS',
+  'PAYMENT_REVIEW',
+  'PAYMENT_APPROVED',
+  'PAYMENT_REJECTED',
+  'FRIEND_REQUEST',
+  'SYSTEM',
+]);
+
 /**
  * Servicio unificado de notificaciones.
- * notify() persiste la notificacion, la emite in-app via Socket.io si el usuario
- * esta conectado, y deja marcado si corresponde enviar push/email (el envio real
- * de push/email se implementa en una fase posterior, pendiente de proveedor).
+ * Persiste, emite in-app (Socket.io), push y email (solo tipos relevantes).
  */
 const notify = async (userId, type, { title, body, payload = null } = {}) => {
   const preference = await prisma.notificationPreference.findUnique({
@@ -16,7 +25,7 @@ const notify = async (userId, type, { title, body, payload = null } = {}) => {
 
   const inAppEnabled = preference?.inAppEnabled ?? true;
   const pushEnabled = preference?.pushEnabled ?? true;
-  const emailEnabled = preference?.emailEnabled ?? true;
+  const emailEnabled = (preference?.emailEnabled ?? true) && EMAIL_NOTIFICATION_TYPES.has(type);
 
   const channels = [];
   if (inAppEnabled) channels.push('in_app');
@@ -44,7 +53,7 @@ const notify = async (userId, type, { title, body, payload = null } = {}) => {
 
   if (pushEnabled) {
     try {
-      await pushService.sendPushToUser(userId, title, body, payload);
+      await pushService.sendPushToUser(userId, title, body, payload || {});
       await prisma.notification.update({
         where: { id: notification.id },
         data: { sentPush: true }
@@ -58,7 +67,6 @@ const notify = async (userId, type, { title, body, payload = null } = {}) => {
     try {
       const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
       if (user && user.email) {
-        // Enviar un email genérico basado en la notificación (luego se puede mejorar con plantillas específicas según el 'type')
         await emailService.sendEmail(user.email, title, body, `<p>${body}</p>`);
         await prisma.notification.update({
           where: { id: notification.id },
@@ -73,4 +81,21 @@ const notify = async (userId, type, { title, body, payload = null } = {}) => {
   return notification;
 };
 
-module.exports = { notify };
+const notifyAdmins = async (type, content) => {
+  const admins = await prisma.user.findMany({
+    where: { role: 'ADMIN', deletedAt: null, isActive: true },
+    select: { id: true }
+  });
+
+  const results = [];
+  for (const admin of admins) {
+    try {
+      results.push(await notify(admin.id, type, content));
+    } catch (error) {
+      console.error(`[Notifications] notifyAdmins failed for ${admin.id}:`, error.message);
+    }
+  }
+  return results;
+};
+
+module.exports = { notify, notifyAdmins };

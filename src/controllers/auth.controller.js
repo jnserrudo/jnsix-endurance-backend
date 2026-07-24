@@ -148,6 +148,21 @@ const registerBusiness = async (req, res) => {
       console.error('[ERROR] [REGISTER BUSINESS] Email error:', mailErr.message);
     }
 
+    try {
+      const { notifyAdmins } = require('../services/notifications.service');
+      await notifyAdmins('BUSINESS_PENDING', {
+        title: 'Nuevo negocio pendiente',
+        body: `"${businessName.trim()}" solicitó unirse al Club de Beneficios. Revisá y aprobá desde Negocios.`,
+        payload: {
+          type: 'BUSINESS_PENDING',
+          businessId: user.business.id,
+          screen: 'AdminBusinesses'
+        }
+      });
+    } catch (notifyErr) {
+      console.error('[ERROR] [REGISTER BUSINESS] Notify admins:', notifyErr.message);
+    }
+
     const token = generateToken(user.id, user.email, user.role);
 
     res.status(201).json({
