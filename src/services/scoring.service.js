@@ -113,7 +113,16 @@ const awardPoints = async (userId, { points, reason, activityId, missionId, achi
     await notify(userId, 'POINTS_EARNED', {
       title: `+${points} pts`,
       body: reason,
-      payload: { type: 'POINTS_EARNED', points, reason }
+      payload: { type: 'POINTS_EARNED', points, reason },
+      dedupeKey: activityId
+        ? `pts:activity:${activityId}`
+        : workoutId
+          ? `pts:workout:${workoutId}`
+          : missionId
+            ? `pts:mission:${missionId}`
+            : achievementId
+              ? `pts:achievement:${achievementId}`
+              : `pts:${userId}:${points}:${reason}`
     }).catch(console.error);
 
     await notifyWishlistEligible(userId, scoreResult.userScore.totalPoints).catch(console.error);
@@ -122,15 +131,11 @@ const awardPoints = async (userId, { points, reason, activityId, missionId, achi
       await notify(userId, 'RANK_UP', {
         title: '¡Subiste de rank!',
         body: `Ahora sos ${scoreResult.rank?.name || 'nuevo rank'}`,
-        payload: { type: 'RANK_UP' }
-      }).catch(console.error);
-    } else if (scoreResult.rankChanged && scoreResult.rankDirection === 'DOWN') {
-      await notify(userId, 'RANK_CHANGED', {
-        title: 'Cambio de rank',
-        body: `Canjeaste premios — ahora sos ${scoreResult.rank?.name || 'nuevo rank'}`,
-        payload: { type: 'RANK_CHANGED' }
+        payload: { type: 'RANK_UP' },
+        dedupeKey: `rankup:${userId}:${scoreResult.rank?.id || scoreResult.rank?.name}`
       }).catch(console.error);
     }
+    // No notificar RANK_CHANGED al ganar puntos (imposible bajar); canje ya avisa en REWARD_REDEEMED.
   }
 
   return { event, points, ...scoreResult };

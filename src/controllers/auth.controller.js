@@ -157,7 +157,8 @@ const registerBusiness = async (req, res) => {
           type: 'BUSINESS_PENDING',
           businessId: user.business.id,
           screen: 'AdminBusinesses'
-        }
+        },
+        dedupeKey: `business:pending:${user.business.id}`
       });
     } catch (notifyErr) {
       console.error('[ERROR] [REGISTER BUSINESS] Notify admins:', notifyErr.message);

@@ -856,6 +856,8 @@ model Business {
   address         String?
   city            String?
   country         String?
+  latitude        Float?
+  longitude       Float?
   websiteUrl      String?        @map("website_url")
   instagramUrl    String?        @map("instagram_url")
   status          BusinessStatus @default(PENDING)

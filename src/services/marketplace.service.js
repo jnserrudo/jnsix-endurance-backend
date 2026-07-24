@@ -70,6 +70,9 @@ const notifyWishlistEligible = async (userId, totalPoints) => {
       cost = Math.max(0, Math.round(cost * (1 - r.featuredDiscountPct / 100)));
     }
 
+    // Premios gratis no disparan "ya podés canjear" (son canjeables siempre).
+    if (cost === 0) continue;
+
     if (totalPoints >= cost) {
       const recent = await prisma.notification.findFirst({
         where: {
@@ -83,7 +86,9 @@ const notifyWishlistEligible = async (userId, totalPoints) => {
         await notify(userId, 'REWARD_AVAILABLE', {
           title: '¡Podés canjear un premio!',
           body: `Ya tenés puntos para "${r.title}"`,
-          payload: { type: 'REWARD_AVAILABLE', rewardId: r.id }
+          payload: { type: 'REWARD_AVAILABLE', rewardId: r.id },
+          dedupeKey: `wishlist:${userId}:${r.id}`,
+          dedupeSeconds: 24 * 60 * 60
         }).catch(console.error);
       }
     }

@@ -134,22 +134,23 @@ const redeemReward = async (userId, rewardId) => {
 
   const scoreResult = await scoringService.recalculateUserScore(userId);
 
-  if (scoreResult.rankChanged && scoreResult.rankDirection === 'DOWN') {
-    const { notify } = require('./notifications.service');
-    await notify(userId, 'RANK_CHANGED', {
-      title: 'Canje exitoso',
-      body: `Canjeaste un premio. Tu rank ahora es ${scoreResult.rank?.name || 'actualizado'}.`,
-      payload: { type: 'RANK_CHANGED' }
-    }).catch(console.error);
-  }
-
+  // Una sola notificación de canje (no mezclar con RANK_CHANGED duplicado).
   const costLabel =
     result.effectiveCost === 0 ? 'gratis' : `${result.effectiveCost} pts`;
+  let body = `Canjeaste "${result.reward.title}" (${costLabel}). Mostrá el código en el local.`;
+  if (scoreResult.rankChanged && scoreResult.rank?.name) {
+    body += ` Tu rank ahora es ${scoreResult.rank.name}.`;
+  }
 
   await notify(userId, 'REWARD_REDEEMED', {
     title: '¡Cupón canjeado!',
-    body: `Canjeaste "${result.reward.title}" (${costLabel})`,
-    payload: { type: 'REWARD_REDEEMED', redemptionId: result.redemption.id }
+    body,
+    payload: {
+      type: 'REWARD_REDEEMED',
+      redemptionId: result.redemption.id,
+      rankChanged: !!scoreResult.rankChanged
+    },
+    dedupeKey: `redeem:${result.redemption.id}`
   }).catch(console.error);
 
   return {

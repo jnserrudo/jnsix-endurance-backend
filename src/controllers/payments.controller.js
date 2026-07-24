@@ -32,7 +32,8 @@ const requestManualPayment = async (req, res) => {
     await notifyAdmins('PAYMENT_REVIEW', {
       title: 'Nuevo Comprobante de Pago',
       body: `El usuario ${req.user.email} subió un comprobante para el plan ${planName}.`,
-      payload: { transactionId: transaction.id, type: 'PAYMENT_REVIEW', screen: 'AdminPayments' }
+      payload: { transactionId: transaction.id, type: 'PAYMENT_REVIEW', screen: 'AdminPayments' },
+      dedupeKey: `payment:review:${transaction.id}`
     });
 
     res.status(201).json({ message: 'Comprobante subido exitosamente', transaction });
@@ -109,7 +110,8 @@ const approvePayment = async (req, res) => {
     await notify(transaction.userId, 'PAYMENT_APPROVED', {
       title: '¡Pago Aprobado!',
       body: `Tu plan ${transaction.planName} ya está activo. ¡A entrenar!`,
-      payload: { type: 'PLAN_CHANGED', plan: transaction.planName }
+      payload: { type: 'PLAN_CHANGED', plan: transaction.planName },
+      dedupeKey: `payment:approved:${transaction.id}`
     });
 
     res.json({ message: 'Pago aprobado', transaction: updatedTx });
@@ -142,7 +144,8 @@ const rejectPayment = async (req, res) => {
     await notify(transaction.userId, 'PAYMENT_REJECTED', {
       title: 'Problema con tu Pago',
       body: `Tu comprobante fue rechazado. Motivo: ${reason}`,
-      payload: { type: 'PAYMENT_REJECTED' }
+      payload: { type: 'PAYMENT_REJECTED' },
+      dedupeKey: `payment:rejected:${transaction.id}`
     });
 
     res.json({ message: 'Pago rechazado', transaction: updatedTx });

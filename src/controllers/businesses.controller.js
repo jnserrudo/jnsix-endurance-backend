@@ -1,6 +1,7 @@
 const prisma = require('../lib/prisma');
 const rewardsService = require('../services/rewards.service');
 const scoringService = require('../services/scoring.service');
+const { notify } = require('../services/notifications.service');
 
 const listBusinesses = async (req, res) => {
   try {
@@ -9,10 +10,15 @@ const listBusinesses = async (req, res) => {
     const search = req.query.search?.trim();
     const skip = (page - 1) * limit;
 
+    const hasCoords = req.query.hasCoords === '1' || req.query.hasCoords === 'true';
+
     const where = {
       status: 'APPROVED',
       isActive: true,
-      ...(search ? { name: { contains: search } } : {})
+      ...(search ? { name: { contains: search } } : {}),
+      ...(hasCoords
+        ? { latitude: { not: null }, longitude: { not: null } }
+        : {})
     };
 
     const [businesses, total] = await Promise.all([
@@ -80,8 +86,19 @@ const updateMyBusiness = async (req, res) => {
       return res.status(403).json({ error: 'Tu cuenta de negocio fue rechazada' });
     }
 
-    const { name, description, address, city, country, websiteUrl, instagramUrl } = req.body;
+    const { name, description, address, city, country, websiteUrl, instagramUrl, latitude, longitude } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'El nombre del negocio es obligatorio' });
+
+    const lat =
+      latitude === '' || latitude == null ? null : Number(latitude);
+    const lng =
+      longitude === '' || longitude == null ? null : Number(longitude);
+    if (lat != null && Number.isNaN(lat)) {
+      return res.status(400).json({ error: 'Latitud inv醠ida' });
+    }
+    if (lng != null && Number.isNaN(lng)) {
+      return res.status(400).json({ error: 'Longitud inv醠ida' });
+    }
 
     const updated = await prisma.business.update({
       where: { id: business.id },
@@ -92,7 +109,9 @@ const updateMyBusiness = async (req, res) => {
         city: city ?? business.city,
         country: country ?? business.country,
         websiteUrl: websiteUrl ?? business.websiteUrl,
-        instagramUrl: instagramUrl ?? business.instagramUrl
+        instagramUrl: instagramUrl ?? business.instagramUrl,
+        ...(latitude !== undefined ? { latitude: lat } : {}),
+        ...(longitude !== undefined ? { longitude: lng } : {})
       }
     });
 
@@ -154,7 +173,7 @@ const createMyReward = async (req, res) => {
     } = req.body;
 
     if (!title?.trim()) {
-      return res.status(400).json({ error: 'El t铆tulo es obligatorio' });
+      return res.status(400).json({ error: 'El t?tulo es obligatorio' });
     }
     const cost = parseInt(pointsCost, 10);
     if (Number.isNaN(cost) || cost < 0) {
@@ -228,7 +247,7 @@ const updateMyRewardStatus = async (req, res) => {
 
     const { status } = req.body;
     if (!['DRAFT', 'ACTIVE', 'PAUSED', 'EXPIRED'].includes(status)) {
-      return res.status(400).json({ error: 'Estado inv醠ido' });
+      return res.status(400).json({ error: 'Estado inv?lido' });
     }
 
     const reward = await prisma.reward.findFirst({
@@ -315,20 +334,20 @@ const lookupRedemption = async (req, res) => {
     if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const { code } = req.body;
-    if (!code?.trim()) return res.status(400).json({ error: 'C贸digo requerido' });
+    if (!code?.trim()) return res.status(400).json({ error: 'C?digo requerido' });
 
     const redemption = await findBusinessRedemptionByCode(business.id, code);
-    if (!redemption) return res.status(404).json({ error: 'Cup贸n no encontrado' });
+    if (!redemption) return res.status(404).json({ error: 'Cup?n no encontrado' });
 
     if (redemption.status === 'USED') {
-      return res.status(409).json({ error: 'Este cup贸n ya fue usado', redemption });
+      return res.status(409).json({ error: 'Este cup?n ya fue usado', redemption });
     }
     if (redemption.status !== 'ACTIVE') {
-      return res.status(400).json({ error: 'El cup贸n no est谩 activo', redemption });
+      return res.status(400).json({ error: 'El cup?n no est? activo', redemption });
     }
     if (redemption.expiresAt && redemption.expiresAt < new Date()) {
       await prisma.redemption.update({ where: { id: redemption.id }, data: { status: 'EXPIRED' } });
-      return res.status(400).json({ error: 'Cup贸n vencido', redemption });
+      return res.status(400).json({ error: 'Cup?n vencido', redemption });
     }
 
     res.json({ redemption, preview: true });
@@ -344,20 +363,20 @@ const validateRedemption = async (req, res) => {
     if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const { code } = req.body;
-    if (!code?.trim()) return res.status(400).json({ error: 'C贸digo requerido' });
+    if (!code?.trim()) return res.status(400).json({ error: 'C?digo requerido' });
 
     const redemption = await findBusinessRedemptionByCode(business.id, code);
-    if (!redemption) return res.status(404).json({ error: 'Cup贸n no encontrado' });
+    if (!redemption) return res.status(404).json({ error: 'Cup?n no encontrado' });
 
     if (redemption.status === 'USED') {
-      return res.status(409).json({ error: 'Este cup贸n ya fue usado', redemption });
+      return res.status(409).json({ error: 'Este cup?n ya fue usado', redemption });
     }
     if (redemption.status !== 'ACTIVE') {
-      return res.status(400).json({ error: 'El cup贸n no est谩 activo', redemption });
+      return res.status(400).json({ error: 'El cup?n no est? activo', redemption });
     }
     if (redemption.expiresAt && redemption.expiresAt < new Date()) {
       await prisma.redemption.update({ where: { id: redemption.id }, data: { status: 'EXPIRED' } });
-      return res.status(400).json({ error: 'Cup贸n vencido', redemption });
+      return res.status(400).json({ error: 'Cup?n vencido', redemption });
     }
 
     const updated = await prisma.redemption.update({
@@ -369,7 +388,19 @@ const validateRedemption = async (req, res) => {
       }
     });
 
-    res.json({ message: 'Cup贸n validado', redemption: updated });
+    // Aviso distinto al canje: el local ya us? el cup?n (1 sola vez, con dedupe).
+    await notify(updated.userId, 'SYSTEM', {
+      title: 'Cup?n validado',
+      body: `"${updated.reward?.title || 'Tu cup?n'}" fue marcado como usado en el local.`,
+      payload: {
+        type: 'REDEMPTION_USED',
+        redemptionId: updated.id,
+        screen: 'MyCoupons'
+      },
+      dedupeKey: `validate:${updated.id}`
+    }).catch((err) => console.error('[validateRedemption] notify:', err.message));
+
+    res.json({ message: 'Cup?n validado', redemption: updated });
   } catch (error) {
     console.error('[ERROR] validateRedemption:', error);
     res.status(500).json({ error: 'Error interno del servidor' });

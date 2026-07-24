@@ -754,7 +754,8 @@ const approveBusiness = async (req, res) => {
           type: 'BUSINESS_STATUS',
           status: 'APPROVED',
           businessId: business.id
-        }
+        },
+        dedupeKey: `business:approved:${business.id}`
       });
     } catch (notifyErr) {
       console.error('[ERROR] approveBusiness notify:', notifyErr.message);
@@ -788,7 +789,8 @@ const rejectBusiness = async (req, res) => {
           type: 'BUSINESS_STATUS',
           status: 'REJECTED',
           businessId: business.id
-        }
+        },
+        dedupeKey: `business:rejected:${business.id}`
       });
     } catch (notifyErr) {
       console.error('[ERROR] rejectBusiness notify:', notifyErr.message);
@@ -853,6 +855,58 @@ const sendTestNotification = async (req, res) => {
   }
 };
 
+const listAdminRewards = async (req, res) => {
+  try {
+    const status = req.query.status?.trim();
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 30, 100);
+    const skip = (page - 1) * limit;
+    const where = status ? { status } : {};
+
+    const [rewards, total] = await Promise.all([
+      prisma.reward.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          business: { select: { id: true, name: true, status: true } }
+        }
+      }),
+      prisma.reward.count({ where })
+    ]);
+
+    res.json({ rewards, total, page, limit });
+  } catch (error) {
+    console.error('[ERROR] listAdminRewards:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const updateAdminRewardStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+    const allowed = ['ACTIVE', 'PAUSED', 'EXPIRED', 'DRAFT'];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ error: 'Estado inválido' });
+    }
+
+    const reward = await prisma.reward.findUnique({ where: { id: req.params.id } });
+    if (!reward) return res.status(404).json({ error: 'Premio no encontrado' });
+
+    const updated = await prisma.reward.update({
+      where: { id: reward.id },
+      data: { status },
+      include: { business: { select: { id: true, name: true } } }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('[ERROR] updateAdminRewardStatus:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
 module.exports = {
   getStats,
   listUsers,
@@ -893,5 +947,7 @@ module.exports = {
   approveBusiness,
   rejectBusiness,
   suspendBusiness,
-  sendTestNotification
+  sendTestNotification,
+  listAdminRewards,
+  updateAdminRewardStatus
 };
