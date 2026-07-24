@@ -36,16 +36,16 @@ class AIService {
     }
   }
 
-  async analyzeActivity(activity, analysisType, customPrompt = null) {
+  async analyzeActivity(activity, analysisType, customPrompt = null, maxTokens = 1500) {
     const prompt = customPrompt || this.buildPrompt(activity, analysisType);
     
     try {
       if (this.provider === 'openai') {
-        return await this.analyzeWithOpenAI(prompt);
+        return await this.analyzeWithOpenAI(prompt, maxTokens);
       } else if (this.provider === 'anthropic') {
-        return await this.analyzeWithAnthropic(prompt);
+        return await this.analyzeWithAnthropic(prompt, maxTokens);
       } else if (this.provider === 'groq') {
-        return await this.analyzeWithGroq(prompt);
+        return await this.analyzeWithGroq(prompt, maxTokens);
       } else {
         throw new Error('No AI provider configured');
       }
@@ -54,7 +54,7 @@ class AIService {
     }
   }
 
-  async analyzeWithOpenAI(prompt) {
+  async analyzeWithOpenAI(prompt, maxTokens = 1500) {
     const response = await this.openai.chat.completions.create({
       model: this.model,
       messages: [
@@ -68,7 +68,7 @@ class AIService {
         }
       ],
       temperature: 0.7,
-      max_tokens: 1500
+      max_tokens: maxTokens
     });
 
     return {
@@ -78,10 +78,10 @@ class AIService {
     };
   }
 
-  async analyzeWithAnthropic(prompt) {
+  async analyzeWithAnthropic(prompt, maxTokens = 1500) {
     const response = await this.anthropic.messages.create({
       model: this.model,
-      max_tokens: 1500,
+      max_tokens: maxTokens,
       system: 'Eres un entrenador experto en triatlón y trail running. Proporciona análisis técnicos, precisos y accionables basados en datos de actividades deportivas. No utilices ningún tipo de emoji en tus respuestas, solo texto plano o markdown.',
       messages: [
         {
@@ -98,7 +98,7 @@ class AIService {
     };
   }
 
-  async analyzeWithGroq(prompt) {
+  async analyzeWithGroq(prompt, maxTokens = 1500) {
     const response = await this.groq.chat.completions.create({
       model: this.model,
       messages: [
@@ -112,7 +112,7 @@ class AIService {
         }
       ],
       temperature: 0.7,
-      max_tokens: 1500
+      max_tokens: maxTokens
     });
 
     return {
@@ -308,16 +308,52 @@ Responde en Markdown legible en móvil: secciones con ## (sin numeración) y vi�
     }
   }
 
-  async generateTrainingPlan(userProfile, goal, weeks = 12) {
+  async generateTrainingPlan(userProfile, goalInput, weeks = 12, simulations = []) {
+    const goal = typeof goalInput === 'string' ? { goal: goalInput } : goalInput;
+    const simulationSummary = simulations.length
+      ? simulations
+          .map((s) => {
+            const pace = s.distanceKm > 0 ? (s.movingTime / 60 / s.distanceKm).toFixed(2) : 'N/A';
+            return `- ${s.name}: ${s.distanceKm} km, +${s.elevationM || 0} m, ritmo ${pace} min/km`;
+          })
+          .join('\n')
+      : '- Sin simulaciones vinculadas';
+
     const prompt = `
 Genera un plan de entrenamiento estructurado en formato JSON, estricto y sin texto adicional.
 
 Perfil del atleta:
 - Nivel: ${userProfile.level || 'Intermedio'}
-- Objetivo: ${goal}
+- Deporte principal: ${userProfile.primarySport || goal.sportType || 'No especificado'}
+- Peso: ${userProfile.weightKg || 'No especificado'} kg
+- Altura: ${userProfile.heightCm || 'No especificada'} cm
+- Género: ${userProfile.gender || 'No especificado'}
+- Objetivo: ${goal.goal}
+- Disciplina objetivo: ${goal.sportType || 'No especificada'}
+- Distancia objetivo: ${goal.targetDistance ?? 'No especificada'} km
+- Desnivel objetivo: ${goal.targetElevation ?? 'No especificado'} m
+- Fecha objetivo: ${goal.targetDate || 'No especificada'}
+- Tiempo objetivo: ${goal.targetTime || 'No especificado'}
+- Terreno: ${goal.terrainType || 'No especificado'}
+- Notas/restricciones: ${goal.notes || 'Ninguna'}
 - Duración del plan: ${weeks} semanas
 - Disponibilidad: ${userProfile.availability || '4-5 días/semana'}
-${userProfile.currentDistance ? `- Distancia actual: ${userProfile.currentDistance} km` : ''}
+- Días preferidos: ${(goal.preferredDays || []).join(', ') || 'Sin preferencia'}
+- Distancia máxima actual: ${userProfile.currentDistance || 'No especificada'}
+- Volumen semanal actual: ${goal.currentWeeklyVolume ?? 'No especificado'} km
+- Volumen semanal objetivo: ${goal.targetWeeklyVolume ?? 'No especificado'} km
+- RPE preferido: ${goal.preferredRpe ?? 'No especificado'}
+- Incluir fuerza: ${goal.includeStrength === false ? 'No' : 'Sí'}
+
+Simulaciones recientes vinculadas:
+${simulationSummary}
+
+Reglas:
+- Distribuye las sesiones solo en los días preferidos cuando estén informados.
+- Incluye progresión, semanas de descarga y taper antes de la fecha objetivo.
+- Incluye fuerza si fue solicitada.
+- Cada sesión debe indicar el esfuerzo/RPE dentro de description.
+- Genera todas las semanas del plan con una cantidad de sesiones coherente con la disponibilidad.
 
 El formato JSON de salida debe ser exactamente:
 {
@@ -339,13 +375,23 @@ El formato JSON de salida debe ser exactamente:
 
 Responde SOLO el JSON.`;
 
-    const result = await this.analyzeActivity({}, 'GENERAL_INSIGHT', prompt);
+    const result = await this.analyzeActivity({}, 'GENERAL_INSIGHT', prompt, 8000);
     
     // Attempt to parse JSON safely
     try {
-      // Find JSON boundaries just in case the LLM outputs markdown formatting
-      const jsonStr = result.replace(/```json/g, '').replace(/```/g, '').trim();
-      return JSON.parse(jsonStr);
+      const raw = typeof result === 'string' ? result : result.response;
+      const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+      const firstBrace = cleaned.indexOf('{');
+      const lastBrace = cleaned.lastIndexOf('}');
+      const jsonStr =
+        firstBrace >= 0 && lastBrace > firstBrace
+          ? cleaned.slice(firstBrace, lastBrace + 1)
+          : cleaned;
+      const parsed = JSON.parse(jsonStr);
+      if (!Array.isArray(parsed.sessions) || parsed.sessions.length === 0) {
+        throw new Error('El plan no contiene sesiones');
+      }
+      return parsed;
     } catch (e) {
       console.error('Error parsing AI training plan JSON:', e);
       throw new Error('AI returned invalid format');

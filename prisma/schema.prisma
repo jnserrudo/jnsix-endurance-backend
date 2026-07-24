@@ -84,22 +84,22 @@ model User {
   transactions          Transaction[]
   workoutSessions       WorkoutSession[]
 
-  subscriptionTier String @default("FREE") @map("subscription_tier")
+  subscriptionTier String  @default("FREE") @map("subscription_tier")
   stripeCustomerId String? @unique @map("stripe_customer_id")
-  
-  userAchievements      UserAchievement[]
 
-  userMissions          UserMission[]
-  streak                Streak?
-  userPlans             UserPlan[]
-  effortLogs            EffortLog[]
-  stories               Story[]
-  storyViews            StoryView[]
-  segmentEfforts        SegmentLeaderboard[]
+  userAchievements UserAchievement[]
 
-  business              Business?
-  redemptions           Redemption[]
-  rewardWishlist        RewardWishlist[]
+  userMissions   UserMission[]
+  streak         Streak?
+  userPlans      UserPlan[]
+  effortLogs     EffortLog[]
+  stories        Story[]
+  storyViews     StoryView[]
+  segmentEfforts SegmentLeaderboard[]
+
+  business       Business?
+  redemptions    Redemption[]
+  rewardWishlist RewardWishlist[]
 
   @@map("users")
 }
@@ -122,7 +122,7 @@ model Activity {
   fileUrl           String?              @map("file_url")
   fileType          FileType?            @map("file_type")
   rawData           Json?                @map("raw_data")
-  mapPolyline       String?              @db.Text @map("map_polyline")
+  mapPolyline       String?              @map("map_polyline") @db.Text
   description       String?              @db.Text
   privateNotes      String?              @map("private_notes") @db.Text
   visibility        Visibility           @default(PRIVATE)
@@ -139,9 +139,8 @@ model Activity {
   comments          Comment[]
   scoreEvents       ScoreEvent[]
 
-  effortLog         EffortLog?
-  segmentEfforts    SegmentLeaderboard[]
-
+  effortLog      EffortLog?
+  segmentEfforts SegmentLeaderboard[]
 
   @@index([userId])
   @@index([startDate])
@@ -229,6 +228,7 @@ model CompetitionGoal {
   updatedAt   DateTime     @updatedAt @map("updated_at")
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   simulations Activity[]   @relation("RaceSimulations")
+  userPlans   UserPlan[]
 
   @@index([userId])
   @@map("competition_goals")
@@ -769,19 +769,19 @@ model EmailVerification {
 // ============================================================
 
 model Plan {
-  id               String         @id @default(uuid())
-  name             String         @unique
-  price            Float
-  currency         String         @default("USD")
-  interval         PlanInterval   @default(MONTHLY)
-  stripeProductId  String?        @map("stripe_product_id")
-  stripePriceId    String?        @map("stripe_price_id")
-  isActive         Boolean        @default(true) @map("is_active")
-  deletedAt        DateTime?      @map("deleted_at")
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
-  features         PlanFeature[]
-  subscriptions    Subscription[]
+  id              String         @id @default(uuid())
+  name            String         @unique
+  price           Float
+  currency        String         @default("USD")
+  interval        PlanInterval   @default(MONTHLY)
+  stripeProductId String?        @map("stripe_product_id")
+  stripePriceId   String?        @map("stripe_price_id")
+  isActive        Boolean        @default(true) @map("is_active")
+  deletedAt       DateTime?      @map("deleted_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  features        PlanFeature[]
+  subscriptions   Subscription[]
 
   @@map("plans")
 }
@@ -1216,10 +1216,10 @@ model Achievement {
 }
 
 model UserAchievement {
-  id            String      @id @default(uuid())
-  userId        String      @map("user_id")
-  achievementId String      @map("achievement_id")
-  unlockedAt    DateTime    @default(now()) @map("unlocked_at")
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  achievementId String   @map("achievement_id")
+  unlockedAt    DateTime @default(now()) @map("unlocked_at")
 
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
@@ -1229,22 +1229,21 @@ model UserAchievement {
   @@map("user_achievements")
 }
 
-
 // ============================================================
 // Gamificación - Misiones y Rachas
 // ============================================================
 
 model Mission {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   name        String
   description String
-  type        String   // Ej: "WEEKLY_DISTANCE", "CONSISTENCY"
+  type        String // Ej: "WEEKLY_DISTANCE", "CONSISTENCY"
   targetValue Float
-  rewardPts   Int      @default(0)
+  rewardPts   Int       @default(0)
   startDate   DateTime?
   endDate     DateTime?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
 
   userMissions UserMission[]
 
@@ -1252,13 +1251,13 @@ model Mission {
 }
 
 model UserMission {
-  id              String   @id @default(uuid())
-  userId          String   @map("user_id")
-  missionId       String   @map("mission_id")
-  currentProgress Float    @default(0)
-  completed       Boolean  @default(false)
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  missionId       String    @map("mission_id")
+  currentProgress Float     @default(0)
+  completed       Boolean   @default(false)
   completedAt     DateTime?
-  
+
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   mission Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
 
@@ -1268,13 +1267,13 @@ model UserMission {
 }
 
 model Streak {
-  id             String   @id @default(uuid())
-  userId         String   @unique @map("user_id")
-  currentStreak  Int      @default(0)
-  longestStreak  Int      @default(0)
+  id             String    @id @default(uuid())
+  userId         String    @unique @map("user_id")
+  currentStreak  Int       @default(0)
+  longestStreak  Int       @default(0)
   lastActivityAt DateTime?
-  updatedAt      DateTime @updatedAt
-  
+  updatedAt      DateTime  @updatedAt
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("streaks")
@@ -1288,7 +1287,7 @@ model TrainingPlan {
   id          String   @id @default(uuid())
   name        String
   description String?
-  level       String   // BEGINNER, INTERMEDIATE, ADVANCED
+  level       String // BEGINNER, INTERMEDIATE, ADVANCED
   weeks       Int
   createdAt   DateTime @default(now())
 
@@ -1299,15 +1298,15 @@ model TrainingPlan {
 }
 
 model PlanSession {
-  id             String   @id @default(uuid())
-  trainingPlanId String   @map("training_plan_id")
+  id             String  @id @default(uuid())
+  trainingPlanId String  @map("training_plan_id")
   week           Int
   day            Int
   name           String
-  description    String?  @db.Text
-  targetMetric   String?  // Ej: DISTANCE, TIME
+  description    String? @db.Text
+  targetMetric   String? // Ej: DISTANCE, TIME
   targetValue    Float?
-  
+
   plan TrainingPlan @relation(fields: [trainingPlanId], references: [id], onDelete: Cascade)
 
   @@index([trainingPlanId])
@@ -1315,17 +1314,21 @@ model PlanSession {
 }
 
 model UserPlan {
-  id             String   @id @default(uuid())
-  userId         String   @map("user_id")
-  trainingPlanId String   @map("training_plan_id")
-  startDate      DateTime
-  isActive       Boolean  @default(true)
-  completed      Boolean  @default(false)
-  
-  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan TrainingPlan @relation(fields: [trainingPlanId], references: [id], onDelete: Cascade)
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  trainingPlanId    String   @map("training_plan_id")
+  competitionGoalId String?  @map("competition_goal_id")
+  goalSnapshot      Json?    @map("goal_snapshot")
+  startDate         DateTime
+  isActive          Boolean  @default(true)
+  completed         Boolean  @default(false)
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan            TrainingPlan     @relation(fields: [trainingPlanId], references: [id], onDelete: Cascade)
+  competitionGoal CompetitionGoal? @relation(fields: [competitionGoalId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([competitionGoalId])
   @@map("user_plans")
 }
 
@@ -1333,7 +1336,7 @@ model EffortLog {
   id         String   @id @default(uuid())
   activityId String   @unique @map("activity_id")
   userId     String   @map("user_id")
-  rpe        Int      // Rate of Perceived Exertion 1-10
+  rpe        Int // Rate of Perceived Exertion 1-10
   notes      String?  @db.Text
   createdAt  DateTime @default(now())
 
@@ -1352,7 +1355,7 @@ model Story {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
   mediaUrl  String   @map("media_url")
-  mediaType String   // IMAGE, VIDEO
+  mediaType String // IMAGE, VIDEO
   caption   String?
   expiresAt DateTime
   createdAt DateTime @default(now())
@@ -1366,10 +1369,10 @@ model Story {
 }
 
 model StoryView {
-  id        String   @id @default(uuid())
-  storyId   String   @map("story_id")
-  userId    String   @map("user_id")
-  viewedAt  DateTime @default(now())
+  id       String   @id @default(uuid())
+  storyId  String   @map("story_id")
+  userId   String   @map("user_id")
+  viewedAt DateTime @default(now())
 
   story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1386,8 +1389,8 @@ model Segment {
   id          String   @id @default(uuid())
   name        String
   description String?
-  startCoords Json     // [lat, lng]
-  endCoords   Json     // [lat, lng]
+  startCoords Json // [lat, lng]
+  endCoords   Json // [lat, lng]
   polyline    String   @db.Text
   distanceKm  Float
   createdAt   DateTime @default(now())
@@ -1398,12 +1401,12 @@ model Segment {
 }
 
 model SegmentLeaderboard {
-  id         String   @id @default(uuid())
-  segmentId  String   @map("segment_id")
-  userId     String   @map("user_id")
-  activityId String   @map("activity_id")
+  id          String   @id @default(uuid())
+  segmentId   String   @map("segment_id")
+  userId      String   @map("user_id")
+  activityId  String   @map("activity_id")
   timeSeconds Int
-  date       DateTime
+  date        DateTime
 
   segment  Segment  @relation(fields: [segmentId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1419,7 +1422,7 @@ model LiveChallenge {
   name        String
   description String?
   scheduledAt DateTime
-  status      String   // SCHEDULED, IN_PROGRESS, COMPLETED
+  status      String // SCHEDULED, IN_PROGRESS, COMPLETED
   createdAt   DateTime @default(now())
 
   @@map("live_challenges")

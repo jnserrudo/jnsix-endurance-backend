@@ -17,7 +17,8 @@ const getCurrentPlan = async (req, res) => {
               ]
             }
           }
-        }
+        },
+        competitionGoal: true
       }
     });
 
@@ -80,59 +81,155 @@ const aiService = require('../services/ai.service');
 const generatePlan = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { 
-      goal, 
-      weeks = 4, 
-      level = 'Intermedio', 
-      availability = '4 dias/semana', 
-      currentDistance = 0 
+    const {
+      goal,
+      weeks = 4,
+      level = 'Intermedio',
+      availability = '4 días/semana',
+      currentDistance = 0,
+      competitionGoalId = null,
+      sportType = 'RUN',
+      targetDistance = null,
+      targetElevation = null,
+      targetDate = null,
+      targetTime = null,
+      terrainType = null,
+      notes = null,
+      preferredDays = [],
+      currentWeeklyVolume = null,
+      targetWeeklyVolume = null,
+      preferredRpe = null,
+      includeStrength = true,
     } = req.body;
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    
-    // Generar JSON
+    if (!goal?.trim()) {
+      return res.status(400).json({ error: 'El objetivo principal es requerido.' });
+    }
+
+    const parsedWeeks = Math.max(4, Math.min(52, parseInt(weeks, 10) || 4));
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        experienceLevel: true,
+        primarySport: true,
+        weightKg: true,
+        heightCm: true,
+        birthDate: true,
+        gender: true,
+      },
+    });
+
+    let competitionGoal = null;
+    if (competitionGoalId) {
+      competitionGoal = await prisma.competitionGoal.findFirst({
+        where: { id: competitionGoalId, userId },
+        include: {
+          simulations: {
+            select: {
+              name: true,
+              type: true,
+              distanceKm: true,
+              movingTime: true,
+              elevationM: true,
+              startDate: true,
+            },
+          },
+        },
+      });
+      if (!competitionGoal) {
+        return res.status(404).json({ error: 'Objetivo vinculado no encontrado.' });
+      }
+    }
+
+    const goalInput = {
+      goal: competitionGoal?.name || goal.trim(),
+      sportType: competitionGoal?.type || sportType,
+      targetDistance: competitionGoal?.distanceKm ?? numericOrNull(targetDistance),
+      targetElevation: competitionGoal?.elevationM ?? numericOrNull(targetElevation),
+      targetDate: competitionGoal?.targetDate?.toISOString() || targetDate || null,
+      targetTime: competitionGoal?.targetTime || targetTime || null,
+      terrainType: competitionGoal?.terrainType || terrainType || null,
+      notes: competitionGoal?.notes || notes || null,
+      weeks: parsedWeeks,
+      level,
+      availability,
+      currentDistance,
+      preferredDays: Array.isArray(preferredDays) ? preferredDays : [],
+      currentWeeklyVolume: numericOrNull(currentWeeklyVolume),
+      targetWeeklyVolume: numericOrNull(targetWeeklyVolume),
+      preferredRpe: numericOrNull(preferredRpe),
+      includeStrength: includeStrength !== false,
+    };
+
     const planData = await aiService.generateTrainingPlan(
-      { level, availability, currentDistance },
-      goal,
-      weeks
+      {
+        ...user,
+        level: level || user?.experienceLevel || 'Intermedio',
+        availability,
+        currentDistance,
+      },
+      goalInput,
+      parsedWeeks,
+      competitionGoal?.simulations || []
     );
 
-    // Guardar en DB
-    const trainingPlan = await prisma.trainingPlan.create({
-      data: {
-        name: planData.name,
-        description: planData.description,
-        level: planData.level,
-        weeks: planData.weeks,
-        sessions: {
-          create: planData.sessions.map(s => ({
-            week: s.week,
-            day: s.day,
-            name: s.name,
-            description: s.description,
-            targetMetric: s.targetMetric,
-            targetValue: s.targetValue
-          }))
-        }
-      }
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.userPlan.updateMany({
+        where: { userId, isActive: true },
+        data: { isActive: false },
+      });
+
+      const trainingPlan = await tx.trainingPlan.create({
+        data: {
+          name: planData.name || `Plan para ${goalInput.goal}`,
+          description: planData.description || null,
+          level: planData.level || level,
+          weeks: parsedWeeks,
+          sessions: {
+            create: (planData.sessions || []).map((session) => ({
+              week: Math.max(1, Math.min(parsedWeeks, parseInt(session.week, 10) || 1)),
+              day: Math.max(1, Math.min(7, parseInt(session.day, 10) || 1)),
+              name: session.name || 'Sesión de entrenamiento',
+              description: session.description || null,
+              targetMetric: session.targetMetric || null,
+              targetValue: numericOrNull(session.targetValue),
+            })),
+          },
+        },
+      });
+
+      const userPlan = await tx.userPlan.create({
+        data: {
+          userId,
+          trainingPlanId: trainingPlan.id,
+          competitionGoalId: competitionGoal?.id || null,
+          goalSnapshot: goalInput,
+          startDate: new Date(),
+          isActive: true,
+        },
+        include: {
+          plan: {
+            include: { sessions: { orderBy: [{ week: 'asc' }, { day: 'asc' }] } },
+          },
+          competitionGoal: true,
+        },
+      });
+
+      return { trainingPlan, userPlan };
     });
 
-    // Asignar al usuario
-    const userPlan = await prisma.userPlan.create({
-      data: {
-        userId,
-        trainingPlanId: trainingPlan.id,
-        startDate: new Date(),
-        isActive: true
-      }
-    });
-
-    res.json({ trainingPlan, userPlan });
+    res.json(result);
   } catch (error) {
     console.error('[GENERATE PLAN ERROR]', error);
     res.status(500).json({ error: 'Error al generar plan' });
   }
 };
+
+function numericOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 module.exports = {
   getCurrentPlan,
