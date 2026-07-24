@@ -9,7 +9,7 @@ router.use(requireFeatureEnabled('rewards_marketplace_enabled'));
 router.get('/', optionalAuth, rewardsController.listRewards);
 router.get('/featured', optionalAuth, rewardsController.getFeaturedReward);
 router.get('/wishlist/me', authenticateToken, requireRole('ATHLETE'), rewardsController.getMyWishlist);
-router.get('/:id', optionalAuth, rewardsController.getRewardById);
+router.get('/:id', authenticateToken, rewardsController.getRewardById);
 router.post('/:id/redeem', authenticateToken, requireRole('ATHLETE'), rewardsController.redeemReward);
 router.post('/:id/wishlist', authenticateToken, requireRole('ATHLETE'), rewardsController.toggleWishlist);
 router.delete('/:id/wishlist', authenticateToken, requireRole('ATHLETE'), rewardsController.toggleWishlist);

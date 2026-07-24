@@ -233,16 +233,18 @@ const getRewardSuggestions = async (userId) => {
   });
 
   const withEffectiveCost = rewards.map((r) => {
-    let effectiveCost = r.pointsCost;
-    if (r.isFeatured && r.featuredUntil && r.featuredUntil > now && r.featuredDiscountPct) {
-      effectiveCost = Math.max(1, Math.round(r.pointsCost * (1 - r.featuredDiscountPct / 100)));
+    let effectiveCost = Math.max(0, Number(r.pointsCost) || 0);
+    if (r.isFeatured && r.featuredUntil && r.featuredUntil > now && r.featuredDiscountPct && effectiveCost > 0) {
+      effectiveCost = Math.max(0, Math.round(effectiveCost * (1 - r.featuredDiscountPct / 100)));
     }
     return { ...r, effectiveCost, pointsNeeded: Math.max(0, effectiveCost - totalPoints), canRedeem: totalPoints >= effectiveCost };
   });
 
   const nearest = withEffectiveCost.find((r) => !r.canRedeem) || null;
   const redeemable = withEffectiveCost.filter((r) => r.canRedeem);
-  const almostThere = withEffectiveCost.filter((r) => !r.canRedeem && r.pointsNeeded <= r.effectiveCost * 0.2);
+  const almostThere = withEffectiveCost.filter(
+    (r) => !r.canRedeem && r.effectiveCost > 0 && r.pointsNeeded <= r.effectiveCost * 0.2
+  );
 
   return { totalPoints, nearest, redeemable, almostThere };
 };

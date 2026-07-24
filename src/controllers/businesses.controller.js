@@ -153,8 +153,12 @@ const createMyReward = async (req, res) => {
       startsAt, expiresAt, minRankOrder
     } = req.body;
 
-    if (!title?.trim() || !pointsCost || pointsCost <= 0) {
-      return res.status(400).json({ error: 'Title and positive pointsCost are required' });
+    if (!title?.trim()) {
+      return res.status(400).json({ error: 'El título es obligatorio' });
+    }
+    const cost = parseInt(pointsCost, 10);
+    if (Number.isNaN(cost) || cost < 0) {
+      return res.status(400).json({ error: 'El costo en puntos debe ser 0 o mayor' });
     }
 
     const reward = await prisma.reward.create({
@@ -162,7 +166,7 @@ const createMyReward = async (req, res) => {
         businessId: business.id,
         title: title.trim(),
         description: description || null,
-        pointsCost: parseInt(pointsCost, 10),
+        pointsCost: cost,
         terms: terms || null,
         stockTotal: stockTotal != null ? parseInt(stockTotal, 10) : null,
         stockRemaining: stockTotal != null ? parseInt(stockTotal, 10) : null,
@@ -192,7 +196,12 @@ const updateMyReward = async (req, res) => {
     if (!reward) return res.status(404).json({ error: 'Reward not found' });
 
     const data = { ...req.body };
-    if (data.pointsCost) data.pointsCost = parseInt(data.pointsCost, 10);
+    if (data.pointsCost != null && data.pointsCost !== '') {
+      data.pointsCost = parseInt(data.pointsCost, 10);
+      if (Number.isNaN(data.pointsCost) || data.pointsCost < 0) {
+        return res.status(400).json({ error: 'El costo en puntos debe ser 0 o mayor' });
+      }
+    }
     if (data.stockTotal != null) {
       data.stockTotal = parseInt(data.stockTotal, 10);
       if (data.stockRemaining == null) data.stockRemaining = data.stockTotal;

@@ -4,11 +4,18 @@ const { generateUniqueCode } = require('./redemption-code.service');
 const { notify } = require('./notifications.service');
 
 const getEffectivePointsCost = (reward) => {
+  const base = Math.max(0, Number(reward.pointsCost) || 0);
   const now = new Date();
-  if (reward.isFeatured && reward.featuredUntil && reward.featuredUntil > now && reward.featuredDiscountPct) {
-    return Math.max(1, Math.round(reward.pointsCost * (1 - reward.featuredDiscountPct / 100)));
+  if (
+    base > 0 &&
+    reward.isFeatured &&
+    reward.featuredUntil &&
+    reward.featuredUntil > now &&
+    reward.featuredDiscountPct
+  ) {
+    return Math.max(0, Math.round(base * (1 - reward.featuredDiscountPct / 100)));
   }
-  return reward.pointsCost;
+  return base;
 };
 
 const isRewardAvailable = (reward, business) => {
@@ -105,14 +112,16 @@ const redeemReward = async (userId, rewardId) => {
       }
     });
 
-    await tx.scoreEvent.create({
-      data: {
-        userId,
-        points: -effectiveCost,
-        reason: `Reward redemption: ${reward.title}`,
-        redemptionId: redemption.id
-      }
-    });
+    if (effectiveCost > 0) {
+      await tx.scoreEvent.create({
+        data: {
+          userId,
+          points: -effectiveCost,
+          reason: `Reward redemption: ${reward.title}`,
+          redemptionId: redemption.id
+        }
+      });
+    }
 
     return { redemption, effectiveCost, reward };
   });
@@ -128,9 +137,12 @@ const redeemReward = async (userId, rewardId) => {
     }).catch(console.error);
   }
 
+  const costLabel =
+    result.effectiveCost === 0 ? 'gratis' : `${result.effectiveCost} pts`;
+
   await notify(userId, 'REWARD_REDEEMED', {
     title: '¡Cupón canjeado!',
-    body: `Canjeaste "${result.reward.title}" por ${result.effectiveCost} pts`,
+    body: `Canjeaste "${result.reward.title}" (${costLabel})`,
     payload: { type: 'REWARD_REDEEMED', redemptionId: result.redemption.id }
   }).catch(console.error);
 

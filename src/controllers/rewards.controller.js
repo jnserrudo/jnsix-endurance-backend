@@ -98,7 +98,8 @@ const getRewardById = async (req, res) => {
     const effectiveCost = rewardsService.getEffectivePointsCost(reward);
     let userContext = null;
 
-    if (req.user?.role === 'ATHLETE') {
+    // Cualquier usuario autenticado que no sea BUSINESS (atleta o admin en smoke test)
+    if (req.user && req.user.role !== 'BUSINESS') {
       const userScore = await prisma.userScore.findUnique({
         where: { userId: req.user.id },
         include: { currentRank: true }
@@ -109,10 +110,12 @@ const getRewardById = async (req, res) => {
         where: { userId_rewardId: { userId: req.user.id, rewardId: reward.id } }
       });
 
+      const canRoleRedeem = req.user.role === 'ATHLETE' || req.user.role === 'ADMIN';
+
       userContext = {
         userPoints: totalPoints,
         pointsNeeded: Math.max(0, effectiveCost - totalPoints),
-        canRedeem: totalPoints >= effectiveCost && meetsRank && isPublic,
+        canRedeem: canRoleRedeem && totalPoints >= effectiveCost && meetsRank && isPublic,
         meetsRankRequirement: meetsRank,
         requiredRankOrder: reward.minRankOrder,
         inWishlist: !!inWishlist
@@ -128,8 +131,8 @@ const getRewardById = async (req, res) => {
 
 const redeemReward = async (req, res) => {
   try {
-    if (req.user.role !== 'ATHLETE') {
-      return res.status(403).json({ error: 'Only athletes can redeem rewards' });
+    if (req.user.role !== 'ATHLETE' && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Solo atletas pueden canjear premios' });
     }
 
     const result = await rewardsService.redeemReward(req.user.id, req.params.id);

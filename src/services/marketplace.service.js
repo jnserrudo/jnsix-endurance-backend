@@ -65,9 +65,9 @@ const notifyWishlistEligible = async (userId, totalPoints) => {
     const r = item.reward;
     if (r.status !== 'ACTIVE' || r.business.status !== 'APPROVED') continue;
 
-    let cost = r.pointsCost;
-    if (r.isFeatured && r.featuredUntil && r.featuredUntil > new Date() && r.featuredDiscountPct) {
-      cost = Math.max(1, Math.round(r.pointsCost * (1 - r.featuredDiscountPct / 100)));
+    let cost = Math.max(0, Number(r.pointsCost) || 0);
+    if (r.isFeatured && r.featuredUntil && r.featuredUntil > new Date() && r.featuredDiscountPct && cost > 0) {
+      cost = Math.max(0, Math.round(cost * (1 - r.featuredDiscountPct / 100)));
     }
 
     if (totalPoints >= cost) {
