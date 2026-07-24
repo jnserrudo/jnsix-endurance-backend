@@ -10,7 +10,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const JWT_SECRET = process.env.JWT_SECRET;
 
 const generateUnsubscribeToken = (email) => {
-  return jwt.sign({ email, purpose: 'unsubscribe' }, JWT_SECRET, { expiresIn: '30d` });
+  return jwt.sign({ email, purpose: 'unsubscribe' }, JWT_SECRET, { expiresIn: '30d' });
 };
 
 const generateMarketingFooter = (email) => {
@@ -46,7 +46,7 @@ const sendEmail = async (to, subject, text, html, isMarketing = false) => {
   };
 
   const response = await fetch(BREVO_API_URL, {
-    method: `POST',
+    method: 'POST',
     headers: {
       'api-key': API_KEY,
       'Content-Type': 'application/json',

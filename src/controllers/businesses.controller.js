@@ -334,20 +334,20 @@ const lookupRedemption = async (req, res) => {
     if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const { code } = req.body;
-    if (!code?.trim()) return res.status(400).json({ error: 'C?digo requerido' });
+    if (!code?.trim()) return res.status(400).json({ error: 'Código requerido' });
 
     const redemption = await findBusinessRedemptionByCode(business.id, code);
-    if (!redemption) return res.status(404).json({ error: 'Cup?n no encontrado' });
+    if (!redemption) return res.status(404).json({ error: 'Cupón no encontrado' });
 
     if (redemption.status === 'USED') {
-      return res.status(409).json({ error: 'Este cup?n ya fue usado', redemption });
+      return res.status(409).json({ error: 'Este cupón ya fue usado', redemption });
     }
     if (redemption.status !== 'ACTIVE') {
-      return res.status(400).json({ error: 'El cup?n no est? activo', redemption });
+      return res.status(400).json({ error: 'El cupón no está activo', redemption });
     }
     if (redemption.expiresAt && redemption.expiresAt < new Date()) {
       await prisma.redemption.update({ where: { id: redemption.id }, data: { status: 'EXPIRED' } });
-      return res.status(400).json({ error: 'Cup?n vencido', redemption });
+      return res.status(400).json({ error: 'Cupón vencido', redemption });
     }
 
     res.json({ redemption, preview: true });
@@ -363,20 +363,20 @@ const validateRedemption = async (req, res) => {
     if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const { code } = req.body;
-    if (!code?.trim()) return res.status(400).json({ error: 'C?digo requerido' });
+    if (!code?.trim()) return res.status(400).json({ error: 'Código requerido' });
 
     const redemption = await findBusinessRedemptionByCode(business.id, code);
-    if (!redemption) return res.status(404).json({ error: 'Cup?n no encontrado' });
+    if (!redemption) return res.status(404).json({ error: 'Cupón no encontrado' });
 
     if (redemption.status === 'USED') {
-      return res.status(409).json({ error: 'Este cup?n ya fue usado', redemption });
+      return res.status(409).json({ error: 'Este cupón ya fue usado', redemption });
     }
     if (redemption.status !== 'ACTIVE') {
-      return res.status(400).json({ error: 'El cup?n no est? activo', redemption });
+      return res.status(400).json({ error: 'El cupón no está activo', redemption });
     }
     if (redemption.expiresAt && redemption.expiresAt < new Date()) {
       await prisma.redemption.update({ where: { id: redemption.id }, data: { status: 'EXPIRED' } });
-      return res.status(400).json({ error: 'Cup?n vencido', redemption });
+      return res.status(400).json({ error: 'Cupón vencido', redemption });
     }
 
     const updated = await prisma.redemption.update({
@@ -388,10 +388,10 @@ const validateRedemption = async (req, res) => {
       }
     });
 
-    // Aviso distinto al canje: el local ya us? el cup?n (1 sola vez, con dedupe).
+    // Aviso distinto al canje: el local ya usó el cupón (1 sola vez, con dedupe).
     await notify(updated.userId, 'SYSTEM', {
-      title: 'Cup?n validado',
-      body: `"${updated.reward?.title || 'Tu cup?n'}" fue marcado como usado en el local.`,
+      title: 'Cupón validado',
+      body: `"${updated.reward?.title || 'Tu cupón'}" fue marcado como usado en el local.`,
       payload: {
         type: 'REDEMPTION_USED',
         redemptionId: updated.id,
@@ -400,7 +400,7 @@ const validateRedemption = async (req, res) => {
       dedupeKey: `validate:${updated.id}`
     }).catch((err) => console.error('[validateRedemption] notify:', err.message));
 
-    res.json({ message: 'Cup?n validado', redemption: updated });
+    res.json({ message: 'Cupón validado', redemption: updated });
   } catch (error) {
     console.error('[ERROR] validateRedemption:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
