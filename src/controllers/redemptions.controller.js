@@ -22,7 +22,7 @@ const getMyRedemptions = async (req, res) => {
     res.json(redemptions);
   } catch (error) {
     console.error('[ERROR] getMyRedemptions:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -39,7 +39,7 @@ const getRedemptionById = async (req, res) => {
       }
     });
 
-    if (!redemption) return res.status(404).json({ error: 'Redemption not found' });
+    if (!redemption) return res.status(404).json({ error: 'Cupón no encontrado' });
 
     res.json({
       ...redemption,
@@ -51,7 +51,7 @@ const getRedemptionById = async (req, res) => {
     });
   } catch (error) {
     console.error('[ERROR] getRedemptionById:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 

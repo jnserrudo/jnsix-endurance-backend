@@ -37,7 +37,7 @@ const requirePermission = (...requiredKeys) => {
   return async (req, res, next) => {
     try {
       if (!req.user) {
-        return res.status(401).json({ error: 'Authentication required' });
+        return res.status(401).json({ error: 'Se requiere iniciar sesión' });
       }
 
       const permissions = await getUserPermissions(req.user.id, req.user.role);
@@ -48,7 +48,11 @@ const requirePermission = (...requiredKeys) => {
 
       const hasPermission = requiredKeys.some((key) => permissions.has(key));
       if (!hasPermission) {
-        return res.status(403).json({ error: 'Insufficient permissions', required: requiredKeys });
+        return res.status(403).json({
+          error: 'No tenés permiso para esta acción',
+          code: 'INSUFFICIENT_PERMISSIONS',
+          required: requiredKeys
+        });
       }
 
       next();

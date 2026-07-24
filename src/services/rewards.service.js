@@ -36,13 +36,13 @@ const redeemReward = async (userId, rewardId) => {
     });
 
     if (!reward) {
-      const err = new Error('Reward not found');
+      const err = new Error('Premio no encontrado');
       err.code = 'NOT_FOUND';
       throw err;
     }
 
     if (!isRewardAvailable(reward, reward.business)) {
-      const err = new Error('Reward is not available');
+      const err = new Error('Este premio no está disponible');
       err.code = 'REWARD_UNAVAILABLE';
       throw err;
     }
@@ -54,7 +54,7 @@ const redeemReward = async (userId, rewardId) => {
         where: { userId, rewardId, status: { not: 'CANCELLED' } }
       });
       if (userRedemptions >= reward.maxPerUser) {
-        const err = new Error('Maximum redemptions reached for this reward');
+        const err = new Error('Ya alcanzaste el máximo de canjes para este premio');
         err.code = 'MAX_PER_USER';
         throw err;
       }
@@ -63,7 +63,9 @@ const redeemReward = async (userId, rewardId) => {
     const userScore = await tx.userScore.findUnique({ where: { userId } });
     const totalPoints = userScore?.totalPoints || 0;
     if (totalPoints < effectiveCost) {
-      const err = new Error('Insufficient points');
+      const err = new Error(
+        `Te faltan ${effectiveCost - totalPoints} pts para canjear este premio`
+      );
       err.code = 'INSUFFICIENT_POINTS';
       err.details = { pointsNeeded: effectiveCost - totalPoints, effectiveCost };
       throw err;
@@ -75,7 +77,11 @@ const redeemReward = async (userId, rewardId) => {
         : null;
       if (!rank || rank.order < reward.minRankOrder) {
         const requiredRank = await tx.rank.findFirst({ where: { order: reward.minRankOrder } });
-        const err = new Error('Rank requirement not met');
+        const err = new Error(
+          requiredRank?.name
+            ? `Necesitás el rank ${requiredRank.name} o superior`
+            : 'No cumplís el rank requerido para este premio'
+        );
         err.code = 'RANK_REQUIRED';
         err.details = { requiredRankName: requiredRank?.name || null };
         throw err;
@@ -88,7 +94,7 @@ const redeemReward = async (userId, rewardId) => {
         data: { stockRemaining: { decrement: 1 } }
       });
       if (updated.count === 0) {
-        const err = new Error('Out of stock');
+        const err = new Error('Sin stock disponible');
         err.code = 'STOCK_EXHAUSTED';
         throw err;
       }
@@ -117,7 +123,7 @@ const redeemReward = async (userId, rewardId) => {
         data: {
           userId,
           points: -effectiveCost,
-          reason: `Reward redemption: ${reward.title}`,
+          reason: `Canje de premio: ${reward.title}`,
           redemptionId: redemption.id
         }
       });

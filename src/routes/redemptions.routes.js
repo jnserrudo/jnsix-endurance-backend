@@ -5,7 +5,7 @@ const { requireFeatureEnabled } = require('../middleware/feature-flag.middleware
 const redemptionsController = require('../controllers/redemptions.controller');
 
 router.use(authenticateToken);
-router.use(requireRole('ATHLETE'));
+router.use(requireRole('ATHLETE', 'ADMIN'));
 router.use(requireFeatureEnabled('rewards_marketplace_enabled'));
 
 router.get('/me', redemptionsController.getMyRedemptions);

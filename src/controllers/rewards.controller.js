@@ -44,7 +44,7 @@ const listRewards = async (req, res) => {
     res.json({ rewards: enriched, total, page, limit });
   } catch (error) {
     console.error('[ERROR] listRewards:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -73,7 +73,7 @@ const getFeaturedReward = async (req, res) => {
     });
   } catch (error) {
     console.error('[ERROR] getFeaturedReward:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -84,7 +84,7 @@ const getRewardById = async (req, res) => {
       include: { business: true }
     });
 
-    if (!reward) return res.status(404).json({ error: 'Reward not found' });
+    if (!reward) return res.status(404).json({ error: 'Premio no encontrado' });
 
     const isOwner = req.user?.role === 'BUSINESS'
       && (await prisma.business.findUnique({ where: { userId: req.user.id } }))?.id === reward.businessId;
@@ -92,7 +92,7 @@ const getRewardById = async (req, res) => {
     const isPublic = rewardsService.isRewardAvailable(reward, reward.business);
 
     if (!isPublic && !isOwner) {
-      return res.status(404).json({ error: 'Reward not found' });
+      return res.status(404).json({ error: 'Premio no encontrado' });
     }
 
     const effectiveCost = rewardsService.getEffectivePointsCost(reward);
@@ -125,7 +125,7 @@ const getRewardById = async (req, res) => {
     res.json({ ...reward, effectiveCost, userContext });
   } catch (error) {
     console.error('[ERROR] getRewardById:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -138,6 +138,9 @@ const redeemReward = async (req, res) => {
     const result = await rewardsService.redeemReward(req.user.id, req.params.id);
     res.status(201).json(result);
   } catch (error) {
+    if (error.code === 'NOT_FOUND') {
+      return res.status(404).json({ error: error.message, code: error.code });
+    }
     if (error.code === 'INSUFFICIENT_POINTS') {
       return res.status(400).json({ error: error.message, code: error.code, ...error.details });
     }
@@ -151,18 +154,18 @@ const redeemReward = async (req, res) => {
       return res.status(400).json({ error: error.message, code: error.code });
     }
     console.error('[ERROR] redeemReward:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
 const toggleWishlist = async (req, res) => {
   try {
-    if (req.user.role !== 'ATHLETE') {
-      return res.status(403).json({ error: 'Only athletes can use wishlist' });
+    if (req.user.role !== 'ATHLETE' && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Solo atletas pueden usar la wishlist' });
     }
 
     const reward = await prisma.reward.findUnique({ where: { id: req.params.id } });
-    if (!reward) return res.status(404).json({ error: 'Reward not found' });
+    if (!reward) return res.status(404).json({ error: 'Premio no encontrado' });
 
     const existing = await prisma.rewardWishlist.findUnique({
       where: { userId_rewardId: { userId: req.user.id, rewardId: reward.id } }
@@ -182,7 +185,7 @@ const toggleWishlist = async (req, res) => {
     res.json({ inWishlist: true });
   } catch (error) {
     console.error('[ERROR] toggleWishlist:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -223,7 +226,7 @@ const getMyWishlist = async (req, res) => {
     });
   } catch (error) {
     console.error('[ERROR] getMyWishlist:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 

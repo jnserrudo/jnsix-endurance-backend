@@ -15,7 +15,10 @@ const requireFeatureEnabled = (key) => {
       }
 
       if (!flag.isEnabled) {
-        return res.status(503).json({ error: 'Feature temporarily disabled', feature: key });
+        return res.status(503).json({
+          error: 'Esta función está temporalmente deshabilitada',
+          feature: key
+        });
       }
 
       next();

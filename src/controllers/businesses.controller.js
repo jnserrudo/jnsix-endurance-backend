@@ -31,7 +31,7 @@ const listBusinesses = async (req, res) => {
     res.json({ businesses, total, page, limit });
   } catch (error) {
     console.error('[ERROR] listBusinesses:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -47,11 +47,11 @@ const getBusinessById = async (req, res) => {
       }
     });
 
-    if (!business) return res.status(404).json({ error: 'Business not found' });
+    if (!business) return res.status(404).json({ error: 'Negocio no encontrado' });
     res.json(business);
   } catch (error) {
     console.error('[ERROR] getBusinessById:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -64,24 +64,24 @@ const getMyBusiness = async (req, res) => {
       }
     });
 
-    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
     res.json(business);
   } catch (error) {
     console.error('[ERROR] getMyBusiness:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
 const updateMyBusiness = async (req, res) => {
   try {
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
-    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
     if (business.status === 'REJECTED') {
-      return res.status(403).json({ error: 'Business account was rejected' });
+      return res.status(403).json({ error: 'Tu cuenta de negocio fue rechazada' });
     }
 
     const { name, description, address, city, country, websiteUrl, instagramUrl } = req.body;
-    if (!name?.trim()) return res.status(400).json({ error: 'Business name is required' });
+    if (!name?.trim()) return res.status(400).json({ error: 'El nombre del negocio es obligatorio' });
 
     const updated = await prisma.business.update({
       where: { id: business.id },
@@ -99,16 +99,16 @@ const updateMyBusiness = async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('[ERROR] updateMyBusiness:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
 const uploadBusinessImage = (field) => async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'Image file is required' });
+    if (!req.file) return res.status(400).json({ error: 'Se requiere una imagen' });
 
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
-    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const url = `/uploads/${req.file.filename}`;
     const updated = await prisma.business.update({
@@ -119,14 +119,14 @@ const uploadBusinessImage = (field) => async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('[ERROR] uploadBusinessImage:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
 const listMyRewards = async (req, res) => {
   try {
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
-    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const rewards = await prisma.reward.findMany({
       where: { businessId: business.id },
@@ -136,16 +136,16 @@ const listMyRewards = async (req, res) => {
     res.json(rewards);
   } catch (error) {
     console.error('[ERROR] listMyRewards:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
 const createMyReward = async (req, res) => {
   try {
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
-    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
     if (business.status !== 'APPROVED') {
-      return res.status(403).json({ error: 'Business must be approved to create rewards' });
+      return res.status(403).json({ error: 'El negocio debe estar aprobado to create rewards' });
     }
 
     const {
@@ -181,19 +181,19 @@ const createMyReward = async (req, res) => {
     res.status(201).json(reward);
   } catch (error) {
     console.error('[ERROR] createMyReward:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
 const updateMyReward = async (req, res) => {
   try {
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
-    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const reward = await prisma.reward.findFirst({
       where: { id: req.params.id, businessId: business.id }
     });
-    if (!reward) return res.status(404).json({ error: 'Reward not found' });
+    if (!reward) return res.status(404).json({ error: 'Premio no encontrado' });
 
     const data = { ...req.body };
     if (data.pointsCost != null && data.pointsCost !== '') {
@@ -214,27 +214,27 @@ const updateMyReward = async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('[ERROR] updateMyReward:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
 const updateMyRewardStatus = async (req, res) => {
   try {
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
-    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
     if (business.status !== 'APPROVED') {
-      return res.status(403).json({ error: 'Business must be approved' });
+      return res.status(403).json({ error: 'El negocio debe estar aprobado' });
     }
 
     const { status } = req.body;
     if (!['DRAFT', 'ACTIVE', 'PAUSED', 'EXPIRED'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
+      return res.status(400).json({ error: 'Estado inv�lido' });
     }
 
     const reward = await prisma.reward.findFirst({
       where: { id: req.params.id, businessId: business.id }
     });
-    if (!reward) return res.status(404).json({ error: 'Reward not found' });
+    if (!reward) return res.status(404).json({ error: 'Premio no encontrado' });
 
     const updated = await prisma.reward.update({
       where: { id: reward.id },
@@ -244,21 +244,21 @@ const updateMyRewardStatus = async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('[ERROR] updateMyRewardStatus:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
 const uploadRewardImage = async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'Image file is required' });
+    if (!req.file) return res.status(400).json({ error: 'Se requiere una imagen' });
 
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
-    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const reward = await prisma.reward.findFirst({
       where: { id: req.params.id, businessId: business.id }
     });
-    if (!reward) return res.status(404).json({ error: 'Reward not found' });
+    if (!reward) return res.status(404).json({ error: 'Premio no encontrado' });
 
     const url = `/uploads/${req.file.filename}`;
     const updated = await prisma.reward.update({
@@ -269,14 +269,14 @@ const uploadRewardImage = async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('[ERROR] uploadRewardImage:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
 const listMyRedemptions = async (req, res) => {
   try {
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
-    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const redemptions = await prisma.redemption.findMany({
       where: { businessId: business.id },
@@ -291,7 +291,7 @@ const listMyRedemptions = async (req, res) => {
     res.json(redemptions);
   } catch (error) {
     console.error('[ERROR] listMyRedemptions:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -312,7 +312,7 @@ const findBusinessRedemptionByCode = async (businessId, code) => {
 const lookupRedemption = async (req, res) => {
   try {
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
-    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const { code } = req.body;
     if (!code?.trim()) return res.status(400).json({ error: 'Código requerido' });
@@ -334,14 +334,14 @@ const lookupRedemption = async (req, res) => {
     res.json({ redemption, preview: true });
   } catch (error) {
     console.error('[ERROR] lookupRedemption:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
 const validateRedemption = async (req, res) => {
   try {
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
-    if (!business) return res.status(404).json({ error: 'Business profile not found' });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const { code } = req.body;
     if (!code?.trim()) return res.status(400).json({ error: 'Código requerido' });
@@ -372,7 +372,7 @@ const validateRedemption = async (req, res) => {
     res.json({ message: 'Cupón validado', redemption: updated });
   } catch (error) {
     console.error('[ERROR] validateRedemption:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
