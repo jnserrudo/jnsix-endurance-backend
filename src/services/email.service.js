@@ -158,6 +158,20 @@ const sendWeeklyReport = async (email, data, nombreAdmin) => {
   return sendEmail(email, subject, text, html, false);
 };
 
+const sendBusinessPendingEmail = async (email, businessName) => {
+  const subject = 'Solicitud recibida — JNSIX Club de Beneficios';
+  const text = `Hola, recibimos la solicitud de "${businessName}". Un administrador la revisará pronto. Te avisaremos cuando puedas publicar beneficios.`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #1a1a1a; color: #ffffff; padding: 30px; text-align: center;">
+      <h1 style="color: #818cf8;">Solicitud recibida</h1>
+      <p style="font-size: 16px;">Recibimos la solicitud de <strong>${businessName}</strong>.</p>
+      <p style="font-size: 16px;">Un administrador la revisará pronto. Cuando esté aprobada, podrás publicar beneficios para atletas.</p>
+      <p style="font-size: 14px; color: #888; margin-top: 24px;">No necesitás verificar un código por ahora — el siguiente paso es la aprobación del admin.</p>
+    </div>
+  `;
+  return sendEmail(email, subject, text, html, false);
+};
+
 module.exports = {
   sendEmail,
   sendVerificationOTP,
@@ -165,6 +179,7 @@ module.exports = {
   sendWelcomeEmail,
   sendAdminAlert,
   sendWeeklyReport,
+  sendBusinessPendingEmail,
   generateUnsubscribeToken,
   generateMarketingFooter
 };

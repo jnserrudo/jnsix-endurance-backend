@@ -123,12 +123,15 @@ const registerBusiness = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Negocios: la puerta real es la aprobación del admin (no OTP de email).
+    // Evita el doble gate confuso "éxito → verifica tu mail" sin correo.
     const user = await prisma.user.create({
       data: {
         email,
         username: username || null,
         password: hashedPassword,
         role: 'BUSINESS',
+        emailVerified: true,
         business: {
           create: {
             name: businessName.trim(),
@@ -139,17 +142,8 @@ const registerBusiness = async (req, res) => {
       include: { business: true }
     });
 
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    await prisma.emailVerification.create({
-      data: {
-        userId: user.id,
-        token: otpCode,
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000)
-      }
-    });
-
     try {
-      await emailService.sendVerificationOTP(user.email, otpCode, businessName.trim());
+      await emailService.sendBusinessPendingEmail(user.email, businessName.trim());
     } catch (mailErr) {
       console.error('[ERROR] [REGISTER BUSINESS] Email error:', mailErr.message);
     }
@@ -162,7 +156,7 @@ const registerBusiness = async (req, res) => {
         email: user.email,
         username: user.username,
         role: user.role,
-        emailVerified: user.emailVerified,
+        emailVerified: true,
         business: user.business
       },
       token,
@@ -208,6 +202,17 @@ const login = async (req, res) => {
       return res.status(401).json({ error: 'Tus credenciales son incorrectas. Verifica tu usuario/correo y contraseña.' });
     }
 
+    // Cuentas BUSINESS creadas antes del fix pueden quedar con emailVerified=false
+    // y quedar atrapadas en VerifyEmail. La aprobación admin es el gate real.
+    let emailVerified = user.emailVerified;
+    if (user.role === 'BUSINESS' && !emailVerified) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { emailVerified: true }
+      });
+      emailVerified = true;
+    }
+
     const token = generateToken(user.id, user.email, user.role);
     console.log('[SUCCESS] [LOGIN] Login exitoso:', user.email);
 
@@ -218,7 +223,7 @@ const login = async (req, res) => {
         username: user.username,
         role: user.role,
         stravaId: user.stravaId,
-        emailVerified: user.emailVerified,
+        emailVerified,
         firstName: user.firstName,
         lastName: user.lastName,
         avatarUrl: user.avatarUrl,
