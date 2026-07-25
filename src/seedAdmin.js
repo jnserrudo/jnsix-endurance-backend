@@ -226,7 +226,7 @@ async function main() {
   }
 
   try {
-    const { seedBadges } = require('../seed_badges');
+    const { seedBadges } = require('./data/defaultBadges');
     await seedBadges(prisma);
   } catch (e) {
     console.warn('Badge seed skipped:', e.message);

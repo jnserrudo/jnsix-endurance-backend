@@ -2,7 +2,7 @@ const prisma = require('../lib/prisma');
 const scoringService = require('./scoring.service');
 const { copy } = require('../constants/copy.es');
 const { activeMissionWhere, startOfDay, getTodayMissionForUser } = require('./missionRotation.service');
-const { ensureBadgesExist } = require('../../seed_badges');
+const { ensureBadgesExist } = require('../data/defaultBadges');
 const { notify } = require('./notifications.service');
 
 const { calculateStreakFromDates } = require('../utils/streak');
