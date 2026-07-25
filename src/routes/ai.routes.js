@@ -17,6 +17,12 @@ router.post('/coach', checkPlanLimit('ai_coach.daily_limit'), aiController.chatW
 router.post('/analyze-competition/:id', checkPlanLimit('ai_coach.daily_limit'), aiController.analyzeCompetitionGoal);
 router.get('/history', aiController.getAnalysisHistory);
 router.get('/usage', aiController.getUsageStats);
+router.get('/conversations', aiController.listConversations);
+router.get('/conversations/:id', aiController.getConversation);
+router.delete('/conversations/:id', aiController.deleteConversation);
+router.get('/predict-race', aiController.predictRace);
+router.get('/export-plan/:userPlanId', aiController.exportPlan);
+router.post('/export-plan/:userPlanId', aiController.exportPlan);
 router.get('/exercise-suggestions', aiController.suggestComplementaryExercises);
 router.get('/daily-briefing', aiController.getDailyBriefing);
 

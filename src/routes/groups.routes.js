@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const groupsController = require('../controllers/groups.controller');
+const feedController = require('../controllers/feed.controller');
+const eventsController = require('../controllers/events.controller');
 const { authenticateToken } = require('../middleware/auth.middleware');
 const { requireFeatureEnabled } = require('../middleware/feature-flag.middleware');
 const imageUpload = require('../middleware/imageUpload.middleware');
@@ -25,5 +27,16 @@ router.get('/:id/invitations', groupsController.listGroupInvitations);
 router.post('/:id/avatar', imageUpload.single('image'), groupsController.uploadGroupAvatar);
 router.delete('/:id/leave', groupsController.leaveGroup);
 router.post('/:id/subgroups', groupsController.createSubgroup);
+
+// Muro del grupo (feed filtrado por groupId)
+router.get('/:id/feed', feedController.getGroupFeed);
+
+// Eventos del grupo
+router.get('/:id/events', eventsController.listGroupEvents);
+router.post('/:id/events', eventsController.createGroupEvent);
+
+router.get('/:id/economy', groupsController.getGroupEconomy);
+router.get('/:id/weekly-plan', groupsController.getWeeklyPlan);
+router.post('/:id/weekly-plan', groupsController.setWeeklyPlan);
 
 module.exports = router;

@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const communitiesController = require('../controllers/communities.controller');
+const feedController = require('../controllers/feed.controller');
+const eventsController = require('../controllers/events.controller');
 const { authenticateToken } = require('../middleware/auth.middleware');
 const { requireFeatureEnabled } = require('../middleware/feature-flag.middleware');
 const { checkPlanLimit } = require('../middleware/plan-enforcement.middleware');
@@ -25,5 +27,15 @@ router.post('/:id/invite', communitiesController.inviteToCommunity);
 router.get('/:id/invitations', communitiesController.listCommunityInvitations);
 router.post('/:id/avatar', imageUpload.single('image'), communitiesController.uploadCommunityAvatar);
 router.delete('/:id/leave', communitiesController.leaveCommunity);
+
+// Muro de la comunidad (feed filtrado por communityId)
+router.get('/:id/feed', feedController.getCommunityFeed);
+
+// Estadísticas del reto colectivo (suma de distancia del mes de los miembros)
+router.get('/:id/challenge-stats', communitiesController.getChallengeStats);
+
+// Eventos de la comunidad
+router.get('/:id/events', eventsController.listCommunityEvents);
+router.post('/:id/events', eventsController.createCommunityEvent);
 
 module.exports = router;

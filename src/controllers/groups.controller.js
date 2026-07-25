@@ -527,6 +527,211 @@ const createSubgroup = async (req, res) => {
   }
 };
 
+const ECONOMY_THRESHOLDS = [
+  { points: 500, message: '¡El club desbloqueó un snack de partner! Pedile el código al admin.' },
+  { points: 1500, message: '¡Umbral medio! Hay un descuento partner disponible para el club.' },
+  { points: 4000, message: '¡Meta alta del mes! Recompensa partner premium desbloqueada.' },
+];
+
+/**
+ * Q2: al cruzar umbral, notifica al OWNER y crea un Reward pointsCost 0
+ * (si hay negocio APPROVED) con título "Premio club umbral X".
+ * Idempotente vía dedupeKey de notificación.
+ */
+const ensureEconomyUnlocks = async (group, monthPoints, unlocked) => {
+  if (!unlocked.length) return [];
+
+  const platformBusiness = await prisma.business.findFirst({
+    where: { status: 'APPROVED', isActive: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const unlocks = [];
+  for (const threshold of unlocked) {
+    const title = `Premio club umbral ${threshold.points}`;
+    let reward = null;
+
+    if (platformBusiness) {
+      reward = await prisma.reward.findFirst({
+        where: {
+          businessId: platformBusiness.id,
+          title,
+          description: { contains: group.id },
+        },
+      });
+      if (!reward) {
+        reward = await prisma.reward.create({
+          data: {
+            businessId: platformBusiness.id,
+            title,
+            description: `Premio de club desbloqueado por el grupo ${group.name} (${group.id}) al alcanzar ${threshold.points} pts del mes.`,
+            pointsCost: 0,
+            status: 'ACTIVE',
+            stockTotal: 50,
+            stockRemaining: 50,
+            terms: threshold.message,
+          },
+        });
+      }
+    }
+
+    await notify(group.ownerId, 'REWARD_AVAILABLE', {
+      title: `Umbral club: ${threshold.points} pts`,
+      body: threshold.message + (reward ? ` Premio listo: ${reward.title}.` : ''),
+      payload: {
+        type: 'REWARD_AVAILABLE',
+        groupId: group.id,
+        threshold: threshold.points,
+        rewardId: reward?.id || null,
+        screen: reward ? 'RewardDetail' : 'GroupDetail',
+      },
+      dedupeKey: `group-economy:${group.id}:${threshold.points}:${new Date().getFullYear()}-${new Date().getMonth() + 1}`,
+    }).catch(console.error);
+
+    unlocks.push({ threshold: threshold.points, rewardId: reward?.id || null });
+  }
+  return unlocks;
+};
+
+const getGroupEconomy = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } },
+    });
+    if (!membership && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Solo miembros pueden ver la economía del club' });
+    }
+
+    const group = await prisma.group.findFirst({
+      where: { id, isActive: true, deletedAt: null },
+      select: { id: true, name: true, ownerId: true },
+    });
+    if (!group) {
+      return res.status(404).json({ error: 'Grupo no encontrado' });
+    }
+
+    const members = await prisma.groupMember.findMany({
+      where: { groupId: id },
+      select: { userId: true },
+    });
+    const memberIds = members.map((m) => m.userId);
+    if (memberIds.length === 0) {
+      return res.json({
+        monthPoints: 0,
+        memberCount: 0,
+        unlocked: [],
+        nextThreshold: ECONOMY_THRESHOLDS[0],
+        thresholds: ECONOMY_THRESHOLDS,
+      });
+    }
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const agg = await prisma.scoreEvent.aggregate({
+      where: {
+        userId: { in: memberIds },
+        createdAt: { gte: monthStart },
+        points: { gt: 0 },
+      },
+      _sum: { points: true },
+    });
+
+    const monthPoints = agg._sum.points || 0;
+    const unlocked = ECONOMY_THRESHOLDS.filter((t) => monthPoints >= t.points);
+    const nextThreshold = ECONOMY_THRESHOLDS.find((t) => monthPoints < t.points) || null;
+
+    const unlockRewards = await ensureEconomyUnlocks(group, monthPoints, unlocked).catch((err) => {
+      console.error('[ERROR] ensureEconomyUnlocks:', err);
+      return [];
+    });
+
+    res.json({
+      monthPoints,
+      memberCount: memberIds.length,
+      unlocked,
+      nextThreshold,
+      thresholds: ECONOMY_THRESHOLDS,
+      unlockRewards,
+      unlockMessage: unlocked.length
+        ? unlocked[unlocked.length - 1].message
+        : nextThreshold
+          ? `Faltan ${nextThreshold.points - monthPoints} pts para el próximo premio partner.`
+          : null,
+    });
+  } catch (error) {
+    console.error('[ERROR] getGroupEconomy:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+const getWeeklyPlan = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } },
+    });
+    if (!membership && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Solo miembros pueden ver el plan semanal' });
+    }
+
+    const group = await prisma.group.findFirst({
+      where: { id, isActive: true, deletedAt: null },
+      select: { id: true, weeklyPlan: true },
+    });
+    if (!group) {
+      return res.status(404).json({ error: 'Grupo no encontrado' });
+    }
+
+    res.json({ weeklyPlan: group.weeklyPlan || null });
+  } catch (error) {
+    console.error('[ERROR] getWeeklyPlan:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+const setWeeklyPlan = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const { content } = req.body || {};
+
+    if (!content || typeof content !== 'string' || !content.trim()) {
+      return res.status(400).json({ error: 'content es requerido' });
+    }
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } },
+    });
+    const isAdminUser = req.user.role === 'ADMIN';
+    if (!isAdminUser && (!membership || !['OWNER', 'ADMIN'].includes(membership.role))) {
+      return res.status(403).json({ error: 'Solo admins del club pueden publicar el plan' });
+    }
+
+    const weeklyPlan = {
+      content: content.trim(),
+      updatedAt: new Date().toISOString(),
+      updatedBy: userId,
+    };
+
+    const group = await prisma.group.update({
+      where: { id },
+      data: { weeklyPlan },
+      select: { id: true, weeklyPlan: true },
+    });
+
+    res.json({ weeklyPlan: group.weeklyPlan });
+  } catch (error) {
+    console.error('[ERROR] setWeeklyPlan:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 module.exports = {
   listGroups,
   getGroupById,
@@ -543,5 +748,8 @@ module.exports = {
   respondGroupInvite,
   uploadGroupAvatar,
   leaveGroup,
-  createSubgroup
+  createSubgroup,
+  getGroupEconomy,
+  getWeeklyPlan,
+  setWeeklyPlan,
 };

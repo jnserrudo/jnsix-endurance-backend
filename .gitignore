@@ -79,6 +79,21 @@ jspm_packages/
 tmp/
 temp/
 
+# Ops helpers, docs, and local dumps — never commit with `git add .`
+scripts/
+docs/
+backups/
+
+# Database dump artifacts (do NOT use bare *.sql — Prisma migrations need .sql)
+*.sql.gz
+*.dump
+**/backup*.sql
+**/dump*.sql
+
+# One-shot seed scripts at repo root (src/seed*.js and prisma/seed.js stay tracked)
+/seed*.js
+/massive-seed.js
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

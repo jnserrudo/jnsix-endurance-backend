@@ -3,6 +3,15 @@ const scoringService = require('./scoring.service');
 const { generateUniqueCode } = require('./redemption-code.service');
 const { notify } = require('./notifications.service');
 
+/** Descuento extra por racha (streak >= 3): 10% sobre el costo efectivo. */
+const STREAK_BONUS_THRESHOLD = 3;
+const STREAK_BONUS_PCT = 10;
+
+/** Descuento extra por proximidad a competencia (J3): 5%. */
+const COMPETITION_PROXIMITY_DAYS = 14;
+const COMPETITION_PROGRESS_PCT = 80;
+const COMPETITION_BONUS_PCT = 5;
+
 const getEffectivePointsCost = (reward) => {
   const base = Math.max(0, Number(reward.pointsCost) || 0);
   const now = new Date();
@@ -28,6 +37,67 @@ const isRewardAvailable = (reward, business) => {
   return true;
 };
 
+/**
+ * Bonus J3: competencia con targetDate en los próximos 14 días y trainingProgress >80%,
+ * O competencia recién completada (targetDate en los últimos 14 días).
+ */
+const getCompetitionProximityBonus = async (tx, userId) => {
+  const now = new Date();
+  const windowEnd = new Date(now);
+  windowEnd.setDate(windowEnd.getDate() + COMPETITION_PROXIMITY_DAYS);
+  const windowStart = new Date(now);
+  windowStart.setDate(windowStart.getDate() - COMPETITION_PROXIMITY_DAYS);
+
+  const goals = await tx.competitionGoal.findMany({
+    where: {
+      userId,
+      targetDate: { gte: windowStart, lte: windowEnd },
+    },
+    include: {
+      simulations: { select: { id: true }, take: 1 },
+      userPlans: {
+        where: { isActive: true },
+        take: 1,
+        include: {
+          plan: {
+            select: { sessions: { select: { status: true } } },
+          },
+        },
+      },
+    },
+  });
+
+  for (const goal of goals) {
+    const target = new Date(goal.targetDate);
+    const sessions = goal.userPlans[0]?.plan?.sessions || [];
+    const doneSessions = sessions.filter((s) => s.status === 'DONE').length;
+    const totalSessions = sessions.length;
+    const percent = totalSessions ? Math.round((doneSessions / totalSessions) * 100) : 0;
+
+    const competitionCompleted =
+      target <= now || (goal.simulations?.length || 0) > 0;
+
+    const nearRaceWithProgress =
+      target > now && percent > COMPETITION_PROGRESS_PCT;
+
+    if (nearRaceWithProgress || competitionCompleted) {
+      return {
+        applied: true,
+        pct: COMPETITION_BONUS_PCT,
+        reason: competitionCompleted
+          ? 'competition_completed'
+          : 'competition_proximity_progress',
+        competitionGoalId: goal.id,
+        competitionName: goal.name,
+        trainingProgressPct: percent,
+        targetDate: goal.targetDate,
+      };
+    }
+  }
+
+  return { applied: false, pct: 0 };
+};
+
 const redeemReward = async (userId, rewardId) => {
   const result = await prisma.$transaction(async (tx) => {
     const reward = await tx.reward.findUnique({
@@ -47,7 +117,26 @@ const redeemReward = async (userId, rewardId) => {
       throw err;
     }
 
-    const effectiveCost = getEffectivePointsCost(reward);
+    let effectiveCost = getEffectivePointsCost(reward);
+    const baseEffectiveCost = effectiveCost;
+
+    const streak = await tx.streak.findUnique({ where: { userId } });
+    const currentStreak = streak?.currentStreak || 0;
+    let streakBonusApplied = false;
+    if (currentStreak >= STREAK_BONUS_THRESHOLD && effectiveCost > 0) {
+      effectiveCost = Math.max(0, Math.round(effectiveCost * (1 - STREAK_BONUS_PCT / 100)));
+      streakBonusApplied = true;
+    }
+
+    const competitionBonus = await getCompetitionProximityBonus(tx, userId);
+    let competitionBonusApplied = false;
+    if (competitionBonus.applied && effectiveCost > 0) {
+      effectiveCost = Math.max(
+        0,
+        Math.round(effectiveCost * (1 - COMPETITION_BONUS_PCT / 100))
+      );
+      competitionBonusApplied = true;
+    }
 
     if (reward.maxPerUser) {
       const userRedemptions = await tx.redemption.count({
@@ -103,6 +192,11 @@ const redeemReward = async (userId, rewardId) => {
     const code = await generateUniqueCode(tx);
     const expiresAt = reward.expiresAt || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
 
+    const reasonParts = [];
+    if (streakBonusApplied) reasonParts.push('bonus racha');
+    if (competitionBonusApplied) reasonParts.push('bonus competencia');
+    const reasonSuffix = reasonParts.length ? ` (${reasonParts.join(', ')})` : '';
+
     const redemption = await tx.redemption.create({
       data: {
         userId,
@@ -123,21 +217,37 @@ const redeemReward = async (userId, rewardId) => {
         data: {
           userId,
           points: -effectiveCost,
-          reason: `Canje de premio: ${reward.title}`,
+          reason: `Canje de premio${reasonSuffix}: ${reward.title}`,
           redemptionId: redemption.id
         }
       });
     }
 
-    return { redemption, effectiveCost, reward };
+    return {
+      redemption,
+      effectiveCost,
+      baseEffectiveCost,
+      reward,
+      streakBonusApplied,
+      currentStreak,
+      streakBonusPct: streakBonusApplied ? STREAK_BONUS_PCT : 0,
+      competitionBonusApplied,
+      competitionBonusPct: competitionBonusApplied ? COMPETITION_BONUS_PCT : 0,
+      competitionBonus,
+    };
   });
 
   const scoreResult = await scoringService.recalculateUserScore(userId);
 
-  // Una sola notificación de canje (no mezclar con RANK_CHANGED duplicado).
   const costLabel =
     result.effectiveCost === 0 ? 'gratis' : `${result.effectiveCost} pts`;
   let body = `Canjeaste "${result.reward.title}" (${costLabel}). Mostrá el código en el local.`;
+  if (result.streakBonusApplied) {
+    body += ` Bonus racha ×${result.currentStreak}: -${STREAK_BONUS_PCT}%.`;
+  }
+  if (result.competitionBonusApplied) {
+    body += ` Bonus competencia: -${COMPETITION_BONUS_PCT}%.`;
+  }
   if (scoreResult.rankChanged && scoreResult.rank?.name) {
     body += ` Tu rank ahora es ${scoreResult.rank.name}.`;
   }
@@ -148,7 +258,9 @@ const redeemReward = async (userId, rewardId) => {
     payload: {
       type: 'REWARD_REDEEMED',
       redemptionId: result.redemption.id,
-      rankChanged: !!scoreResult.rankChanged
+      rankChanged: !!scoreResult.rankChanged,
+      streakBonusApplied: result.streakBonusApplied,
+      competitionBonusApplied: result.competitionBonusApplied,
     },
     dedupeKey: `redeem:${result.redemption.id}`
   }).catch(console.error);
@@ -156,6 +268,26 @@ const redeemReward = async (userId, rewardId) => {
   return {
     redemption: result.redemption,
     pointsSpent: result.effectiveCost,
+    baseEffectiveCost: result.baseEffectiveCost,
+    /** true si se aplicó descuento por racha >= 3 */
+    streakBonusApplied: result.streakBonusApplied,
+    streakBonusPct: result.streakBonusPct,
+    currentStreak: result.currentStreak,
+    /**
+     * Bonus J3: +5% dto si hay competitionGoal con targetDate ≤14 días y
+     * trainingProgress >80%, o competencia completada (fecha pasada / simulación).
+     */
+    competitionBonusApplied: result.competitionBonusApplied,
+    competitionBonusPct: result.competitionBonusPct,
+    competitionBonus: result.competitionBonusApplied
+      ? {
+          pct: COMPETITION_BONUS_PCT,
+          reason: result.competitionBonus.reason,
+          competitionGoalId: result.competitionBonus.competitionGoalId,
+          competitionName: result.competitionBonus.competitionName,
+          trainingProgressPct: result.competitionBonus.trainingProgressPct,
+        }
+      : null,
     newTotalPoints: scoreResult.userScore.totalPoints,
     rankChanged: scoreResult.rankChanged,
     rank: scoreResult.rank
@@ -165,5 +297,11 @@ const redeemReward = async (userId, rewardId) => {
 module.exports = {
   getEffectivePointsCost,
   isRewardAvailable,
-  redeemReward
+  redeemReward,
+  getCompetitionProximityBonus,
+  STREAK_BONUS_THRESHOLD,
+  STREAK_BONUS_PCT,
+  COMPETITION_PROXIMITY_DAYS,
+  COMPETITION_PROGRESS_PCT,
+  COMPETITION_BONUS_PCT,
 };

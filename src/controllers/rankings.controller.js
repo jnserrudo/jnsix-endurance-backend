@@ -13,34 +13,97 @@ const getPeriodStart = (period) => {
   return start;
 };
 
-const buildRankingsQuery = async ({ friendIds, scope, scopeId, period }) => {
-  const start = getPeriodStart(period);
-  const dateFilter = start ? { createdAt: { gte: start } } : {};
-
-  let userIds = [];
+const resolveScopedUserIds = async ({ friendIds, scope, scopeId }) => {
   if (scope === 'friends' && friendIds) {
-    userIds = friendIds;
-  } else if (scope === 'group' && scopeId) {
+    return friendIds;
+  }
+  if (scope === 'group' && scopeId) {
     const members = await prisma.groupMember.findMany({
       where: { groupId: scopeId },
       select: { userId: true }
     });
-    userIds = members.map((m) => m.userId);
-  } else if (scope === 'community' && scopeId) {
+    return members.map((m) => m.userId);
+  }
+  if (scope === 'community' && scopeId) {
     const members = await prisma.communityMember.findMany({
       where: { communityId: scopeId },
       select: { userId: true }
     });
-    userIds = members.map((m) => m.userId);
-  } else if (scope === 'regional' && scopeId) {
+    return members.map((m) => m.userId);
+  }
+  if (scope === 'regional' && scopeId) {
     const members = await prisma.communityMember.findMany({
       where: { community: { region: scopeId } },
       select: { userId: true }
     });
-    userIds = members.map((m) => m.userId);
+    return members.map((m) => m.userId);
+  }
+  return null;
+};
+
+const attachUserMeta = async (entries) => {
+  const userIds = entries.map((e) => e.userId);
+  if (userIds.length === 0) return [];
+
+  const [users, userScores] = await Promise.all([
+    prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, email: true, username: true }
+    }),
+    prisma.userScore.findMany({
+      where: { userId: { in: userIds } },
+      include: { currentRank: { select: { name: true, iconUrl: true, order: true } } }
+    })
+  ]);
+
+  const userMap = users.reduce((acc, u) => {
+    acc[u.id] = { email: u.email, username: u.username };
+    return acc;
+  }, {});
+  const rankMap = userScores.reduce((acc, us) => {
+    acc[us.userId] = us.currentRank;
+    return acc;
+  }, {});
+
+  return entries
+    .map((entry) => ({
+      userId: entry.userId,
+      email: userMap[entry.userId]?.email || null,
+      username: userMap[entry.userId]?.username || null,
+      totalPoints: entry.totalPoints,
+      rank: rankMap[entry.userId] || null
+    }))
+    .sort((a, b) => b.totalPoints - a.totalPoints)
+    .map((entry, index) => ({ position: index + 1, ...entry }));
+};
+
+/**
+ * period !== 'all' → sum ScoreEvent in the window
+ * period === 'all' → UserScore.totalPoints (lifetime matches profile)
+ */
+const buildRankingsQuery = async ({ friendIds, scope, scopeId, period }) => {
+  const scopedIds = await resolveScopedUserIds({ friendIds, scope, scopeId });
+  const start = getPeriodStart(period);
+
+  // Lifetime: UserScore is source of truth
+  if (!start) {
+    const where = {
+      ...(scopedIds ? { userId: { in: scopedIds } } : {}),
+      totalPoints: { gt: 0 }
+    };
+    const scores = await prisma.userScore.findMany({
+      where,
+      select: { userId: true, totalPoints: true },
+      orderBy: { totalPoints: 'desc' }
+    });
+    return attachUserMeta(scores);
   }
 
-  const where = userIds.length > 0 ? { userId: { in: userIds }, ...dateFilter } : dateFilter;
+  // Period window: aggregate ScoreEvent
+  const where = {
+    createdAt: { gte: start },
+    ...(scopedIds ? { userId: { in: scopedIds } } : {})
+  };
 
   const events = await prisma.scoreEvent.findMany({
     where,
@@ -52,46 +115,19 @@ const buildRankingsQuery = async ({ friendIds, scope, scopeId, period }) => {
     return acc;
   }, {});
 
-  const userIdsWithScores = Object.keys(scoresByUser);
-  const users = await prisma.user.findMany({
-    where: { id: { in: userIdsWithScores } },
-    select: { id: true, email: true, username: true }
-  });
+  const entries = Object.entries(scoresByUser)
+    .filter(([, pts]) => pts > 0)
+    .map(([userId, totalPoints]) => ({ userId, totalPoints }));
 
-  const userMap = users.reduce((acc, u) => {
-    acc[u.id] = { email: u.email, username: u.username };
-    return acc;
-  }, {});
-
-  const userScores = await prisma.userScore.findMany({
-    where: { userId: { in: userIdsWithScores } },
-    include: { currentRank: { select: { name: true, iconUrl: true, order: true } } }
-  });
-  const rankMap = userScores.reduce((acc, us) => {
-    acc[us.userId] = us.currentRank;
-    return acc;
-  }, {});
-
-  const rankings = Object.entries(scoresByUser)
-    .map(([uid, points]) => ({
-      userId: uid,
-      email: userMap[uid]?.email || null,
-      username: userMap[uid]?.username || null,
-      totalPoints: points,
-      rank: rankMap[uid] || null
-    }))
-    .sort((a, b) => b.totalPoints - a.totalPoints)
-    .map((entry, index) => ({ position: index + 1, ...entry }));
-
-  return rankings;
+  return attachUserMeta(entries);
 };
 
 const getGlobalRankings = async (req, res) => {
   try {
     const { period = 'all', page = DEFAULT_PAGE, limit = DEFAULT_LIMIT } = req.query;
     const rankings = await buildRankingsQuery({ scope: 'global', period });
-    const start = (parseInt(page) - 1) * parseInt(limit);
-    const paginated = rankings.slice(start, start + parseInt(limit));
+    const start = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const paginated = rankings.slice(start, start + parseInt(limit, 10));
     res.json({ rankings: paginated, total: rankings.length });
   } catch (error) {
     console.error('[ERROR]', error);
@@ -171,10 +207,62 @@ const getUserScore = async (req, res) => {
   }
 };
 
+/**
+ * Ranking de temporada: suma ScoreEvent entre startDate y endDate de la Season.
+ */
+const getSeasonRankings = async (req, res) => {
+  try {
+    const { seasonId } = req.params;
+    const { page = DEFAULT_PAGE, limit = DEFAULT_LIMIT } = req.query;
+
+    const season = await prisma.season.findUnique({ where: { id: seasonId } });
+    if (!season) {
+      return res.status(404).json({ error: 'Temporada no encontrada' });
+    }
+
+    const events = await prisma.scoreEvent.findMany({
+      where: {
+        createdAt: { gte: season.startDate, lte: season.endDate },
+        points: { gt: 0 },
+      },
+      select: { userId: true, points: true },
+    });
+
+    const scoresByUser = events.reduce((acc, event) => {
+      acc[event.userId] = (acc[event.userId] || 0) + event.points;
+      return acc;
+    }, {});
+
+    const entries = Object.entries(scoresByUser)
+      .filter(([, pts]) => pts > 0)
+      .map(([userId, totalPoints]) => ({ userId, totalPoints }));
+
+    const rankings = await attachUserMeta(entries);
+    const start = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const paginated = rankings.slice(start, start + parseInt(limit, 10));
+
+    res.json({
+      season: {
+        id: season.id,
+        name: season.name,
+        startDate: season.startDate,
+        endDate: season.endDate,
+        isActive: season.isActive,
+      },
+      rankings: paginated,
+      total: rankings.length,
+    });
+  } catch (error) {
+    console.error('[ERROR] getSeasonRankings:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 module.exports = {
   getGlobalRankings,
   getFriendsRankings,
   getGroupRankings,
   getCommunityRankings,
-  getUserScore
+  getUserScore,
+  getSeasonRankings,
 };

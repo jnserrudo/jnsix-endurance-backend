@@ -1,4 +1,5 @@
 const prisma = require('../lib/prisma');
+const gamificationService = require('../services/gamification.service');
 
 const getStreak = async (req, res) => {
   try {
@@ -17,7 +18,8 @@ const getStreak = async (req, res) => {
       });
     }
 
-    res.json(streak);
+    const atRisk = await gamificationService.getStreakAtRiskStatus(userId);
+    res.json({ ...streak, atRisk: atRisk.atRisk, atRiskDetail: atRisk });
   } catch (error) {
     console.error('[GET STREAK ERROR]', error);
     res.status(500).json({ error: 'Error al obtener la racha' });
@@ -60,6 +62,19 @@ const getMissions = async (req, res) => {
   } catch (error) {
     console.error('[GET MISSIONS ERROR]', error);
     res.status(500).json({ error: 'Error al obtener las misiones' });
+  }
+};
+
+const getTodayMission = async (req, res) => {
+  try {
+    const mission = await gamificationService.getTodayMission(req.user.id);
+    if (!mission) {
+      return res.json({ mission: null, message: 'No hay misión del día' });
+    }
+    res.json({ mission });
+  } catch (error) {
+    console.error('[GET TODAY MISSION ERROR]', error);
+    res.status(500).json({ error: 'Error al obtener la misión de hoy' });
   }
 };
 
@@ -110,23 +125,132 @@ const updateMissionProgress = async (req, res) => {
 const checkUnlockables = async (req, res) => {
   try {
     const userId = req.user.id;
-    // Check pending achievements or missions that have been fulfilled passively
+    const newlyEarnedBadges = await gamificationService.checkAndAwardBadges(userId);
+    const combo = await gamificationService.checkDailyComboBonus(userId);
     const userMissions = await prisma.userMission.findMany({
       where: { userId, completed: true },
       include: { mission: true }
     });
-    
-    // Simplification for the frontend that expects an array of unlocked stuff
-    res.json({ newlyUnlocked: [], completedMissions: userMissions });
+
+    res.json({
+      newlyUnlocked: newlyEarnedBadges.map((ub) => ({
+        type: 'badge',
+        id: ub.badge.id,
+        code: ub.badge.code,
+        name: ub.badge.name,
+      })),
+      combo,
+      completedMissions: userMissions,
+    });
   } catch (error) {
     console.error('[CHECK UNLOCKABLES ERROR]', error);
     res.status(500).json({ error: 'Error al verificar desbloqueos' });
   }
 };
 
+const getBadges = async (req, res) => {
+  try {
+    const data = await gamificationService.getBadgesCatalog(req.user.id);
+    res.json(data);
+  } catch (error) {
+    console.error('[GET BADGES ERROR]', error);
+    res.status(500).json({ error: 'Error al obtener insignias' });
+  }
+};
+
+const getCurrentSeason = async (req, res) => {
+  try {
+    const now = new Date();
+    let season = await prisma.season.findFirst({
+      where: {
+        isActive: true,
+        startDate: { lte: now },
+        endDate: { gte: now },
+      },
+      orderBy: { startDate: 'desc' },
+    });
+
+    if (!season) {
+      season = await prisma.season.findFirst({
+        where: { isActive: true },
+        orderBy: { startDate: 'desc' },
+      });
+    }
+
+    res.json({ season: season || null });
+  } catch (error) {
+    console.error('[GET CURRENT SEASON ERROR]', error);
+    res.status(500).json({ error: 'Error al obtener la temporada actual' });
+  }
+};
+
+const listSeasons = async (req, res) => {
+  try {
+    const seasons = await prisma.season.findMany({
+      orderBy: { startDate: 'desc' },
+    });
+    res.json(seasons);
+  } catch (error) {
+    console.error('[LIST SEASONS ERROR]', error);
+    res.status(500).json({ error: 'Error al listar temporadas' });
+  }
+};
+
+const createSeason = async (req, res) => {
+  try {
+    const { name, startDate, endDate, isActive } = req.body;
+    if (!name || !startDate || !endDate) {
+      return res.status(400).json({ error: 'name, startDate y endDate son requeridos' });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      return res.status(400).json({ error: 'Fechas inválidas' });
+    }
+
+    if (isActive) {
+      await prisma.season.updateMany({
+        where: { isActive: true },
+        data: { isActive: false },
+      });
+    }
+
+    const season = await prisma.season.create({
+      data: {
+        name,
+        startDate: start,
+        endDate: end,
+        isActive: !!isActive,
+      },
+    });
+
+    res.status(201).json(season);
+  } catch (error) {
+    console.error('[CREATE SEASON ERROR]', error);
+    res.status(500).json({ error: 'Error al crear temporada' });
+  }
+};
+
+const getStreakAtRisk = async (req, res) => {
+  try {
+    const status = await gamificationService.getStreakAtRiskStatus(req.user.id);
+    res.json(status);
+  } catch (error) {
+    console.error('[GET STREAK AT RISK ERROR]', error);
+    res.status(500).json({ error: 'Error al verificar racha en riesgo' });
+  }
+};
+
 module.exports = {
   getStreak,
   getMissions,
+  getTodayMission,
   updateMissionProgress,
-  checkUnlockables
+  checkUnlockables,
+  getBadges,
+  getCurrentSeason,
+  listSeasons,
+  createSeason,
+  getStreakAtRisk,
 };

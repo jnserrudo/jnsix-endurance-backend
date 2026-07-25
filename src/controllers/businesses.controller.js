@@ -94,10 +94,10 @@ const updateMyBusiness = async (req, res) => {
     const lng =
       longitude === '' || longitude == null ? null : Number(longitude);
     if (lat != null && Number.isNaN(lat)) {
-      return res.status(400).json({ error: 'Latitud inválida' });
+      return res.status(400).json({ error: 'Latitud inv?lida' });
     }
     if (lng != null && Number.isNaN(lng)) {
-      return res.status(400).json({ error: 'Longitud inválida' });
+      return res.status(400).json({ error: 'Longitud inv?lida' });
     }
 
     const updated = await prisma.business.update({
@@ -314,6 +314,94 @@ const listMyRedemptions = async (req, res) => {
   }
 };
 
+const getMyAnalytics = async (req, res) => {
+  try {
+    const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
+
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const [redemptionsThisWeek, uniqueAthletes, checkInsThisWeek] = await Promise.all([
+      prisma.redemption.count({
+        where: {
+          businessId: business.id,
+          createdAt: { gte: weekAgo }
+        }
+      }),
+      prisma.redemption.findMany({
+        where: { businessId: business.id },
+        select: { userId: true },
+        distinct: ['userId']
+      }),
+      prisma.businessCheckIn.count({
+        where: {
+          businessId: business.id,
+          createdAt: { gte: weekAgo }
+        }
+      })
+    ]);
+
+    res.json({
+      redemptionsThisWeek,
+      uniqueAthletes: uniqueAthletes.length,
+      checkInsThisWeek,
+      periodDays: 7
+    });
+  } catch (error) {
+    console.error('[ERROR] getMyAnalytics:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const CHECK_IN_POINTS = 5;
+
+const checkIn = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const businessId = req.params.id;
+
+    const business = await prisma.business.findFirst({
+      where: { id: businessId, status: 'APPROVED', isActive: true }
+    });
+    if (!business) return res.status(404).json({ error: 'Negocio no encontrado' });
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const already = await prisma.businessCheckIn.findFirst({
+      where: {
+        userId,
+        businessId,
+        createdAt: { gte: todayStart }
+      }
+    });
+    if (already) {
+      return res.status(409).json({
+        error: 'Ya hiciste check-in hoy en este local',
+        checkIn: already
+      });
+    }
+
+    const checkInRow = await prisma.businessCheckIn.create({
+      data: { userId, businessId }
+    });
+
+    const award = await scoringService.awardPoints(userId, {
+      points: CHECK_IN_POINTS,
+      reason: `Check-in en ${business.name}`
+    });
+
+    res.status(201).json({
+      checkIn: checkInRow,
+      pointsAwarded: CHECK_IN_POINTS,
+      newTotalPoints: award.scoreResult?.userScore?.totalPoints ?? null
+    });
+  } catch (error) {
+    console.error('[ERROR] checkIn:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
 const findBusinessRedemptionByCode = async (businessId, code) => {
   const normalized = code.trim().toUpperCase().replace(/\s/g, '');
   return prisma.redemption.findFirst({
@@ -334,20 +422,20 @@ const lookupRedemption = async (req, res) => {
     if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const { code } = req.body;
-    if (!code?.trim()) return res.status(400).json({ error: 'Código requerido' });
+    if (!code?.trim()) return res.status(400).json({ error: 'C?digo requerido' });
 
     const redemption = await findBusinessRedemptionByCode(business.id, code);
-    if (!redemption) return res.status(404).json({ error: 'Cupón no encontrado' });
+    if (!redemption) return res.status(404).json({ error: 'Cup?n no encontrado' });
 
     if (redemption.status === 'USED') {
-      return res.status(409).json({ error: 'Este cupón ya fue usado', redemption });
+      return res.status(409).json({ error: 'Este cup?n ya fue usado', redemption });
     }
     if (redemption.status !== 'ACTIVE') {
-      return res.status(400).json({ error: 'El cupón no está activo', redemption });
+      return res.status(400).json({ error: 'El cup?n no est? activo', redemption });
     }
     if (redemption.expiresAt && redemption.expiresAt < new Date()) {
       await prisma.redemption.update({ where: { id: redemption.id }, data: { status: 'EXPIRED' } });
-      return res.status(400).json({ error: 'Cupón vencido', redemption });
+      return res.status(400).json({ error: 'Cup?n vencido', redemption });
     }
 
     res.json({ redemption, preview: true });
@@ -363,20 +451,20 @@ const validateRedemption = async (req, res) => {
     if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
     const { code } = req.body;
-    if (!code?.trim()) return res.status(400).json({ error: 'Código requerido' });
+    if (!code?.trim()) return res.status(400).json({ error: 'C?digo requerido' });
 
     const redemption = await findBusinessRedemptionByCode(business.id, code);
-    if (!redemption) return res.status(404).json({ error: 'Cupón no encontrado' });
+    if (!redemption) return res.status(404).json({ error: 'Cup?n no encontrado' });
 
     if (redemption.status === 'USED') {
-      return res.status(409).json({ error: 'Este cupón ya fue usado', redemption });
+      return res.status(409).json({ error: 'Este cup?n ya fue usado', redemption });
     }
     if (redemption.status !== 'ACTIVE') {
-      return res.status(400).json({ error: 'El cupón no está activo', redemption });
+      return res.status(400).json({ error: 'El cup?n no est? activo', redemption });
     }
     if (redemption.expiresAt && redemption.expiresAt < new Date()) {
       await prisma.redemption.update({ where: { id: redemption.id }, data: { status: 'EXPIRED' } });
-      return res.status(400).json({ error: 'Cupón vencido', redemption });
+      return res.status(400).json({ error: 'Cup?n vencido', redemption });
     }
 
     const updated = await prisma.redemption.update({
@@ -388,10 +476,10 @@ const validateRedemption = async (req, res) => {
       }
     });
 
-    // Aviso distinto al canje: el local ya usó el cupón (1 sola vez, con dedupe).
+    // Aviso distinto al canje: el local ya us? el cup?n (1 sola vez, con dedupe).
     await notify(updated.userId, 'SYSTEM', {
-      title: 'Cupón validado',
-      body: `"${updated.reward?.title || 'Tu cupón'}" fue marcado como usado en el local.`,
+      title: 'Cup?n validado',
+      body: `"${updated.reward?.title || 'Tu cup?n'}" fue marcado como usado en el local.`,
       payload: {
         type: 'REDEMPTION_USED',
         redemptionId: updated.id,
@@ -400,9 +488,26 @@ const validateRedemption = async (req, res) => {
       dedupeKey: `validate:${updated.id}`
     }).catch((err) => console.error('[validateRedemption] notify:', err.message));
 
-    res.json({ message: 'Cupón validado', redemption: updated });
+    res.json({ message: 'Cup?n validado', redemption: updated });
   } catch (error) {
     console.error('[ERROR] validateRedemption:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const listMySettlements = async (req, res) => {
+  try {
+    const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
+
+    const settlements = await prisma.settlement.findMany({
+      where: { businessId: business.id },
+      orderBy: { periodEnd: 'desc' },
+      take: 50,
+    });
+    res.json({ settlements });
+  } catch (error) {
+    console.error('[ERROR] listMySettlements:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
@@ -419,6 +524,9 @@ module.exports = {
   updateMyRewardStatus,
   uploadRewardImage,
   listMyRedemptions,
+  getMyAnalytics,
+  checkIn,
   lookupRedemption,
-  validateRedemption
+  validateRedemption,
+  listMySettlements,
 };

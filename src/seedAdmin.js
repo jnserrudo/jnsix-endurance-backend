@@ -57,6 +57,7 @@ const FEATURE_FLAGS = [
   { key: 'friends_enabled', name: 'Amigos', description: 'Habilita el modulo de solicitudes de amistad' },
   { key: 'rankings_enabled', name: 'Rankings', description: 'Habilita rankings/rangos/categorias' },
   { key: 'challenges_enabled', name: 'Retos', description: 'Habilita el modulo de retos/challenges' },
+  { key: 'stories_enabled', name: 'Stories', description: 'Habilita stories efimeras (24h)' },
   { key: 'groups_enabled', name: 'Grupos', description: 'Habilita grupos/subgrupos de amigos' },
   { key: 'communities_enabled', name: 'Comunidades', description: 'Habilita comunidades regionales/tematicas' },
   { key: 'feed_enabled', name: 'Feed social', description: 'Habilita el feed de posts/comentarios/reacciones' },
@@ -65,6 +66,14 @@ const FEATURE_FLAGS = [
   { key: 'plans_enabled', name: 'Planes y limites', description: 'Habilita el enforcement de planes/features' },
   { key: 'rewards_marketplace_enabled', name: 'Marketplace de Recompensas', description: 'Habilita el club de beneficios y canje de puntos' }
 ];
+
+/** Flags that seed must leave enabled (product defaults for Epic social modules). */
+const FORCE_ENABLED_FLAGS = new Set([
+  'chat_enabled',
+  'challenges_enabled',
+  'rankings_enabled',
+  'stories_enabled',
+]);
 
 const PLANS = [
   {
@@ -158,9 +167,12 @@ async function main() {
   console.log(`Role definitions seeded: ${ROLE_DEFINITIONS.length}`);
 
   for (const flag of FEATURE_FLAGS) {
+    const forceOn = FORCE_ENABLED_FLAGS.has(flag.key);
     await prisma.featureFlag.upsert({
       where: { key: flag.key },
-      update: {},
+      update: forceOn
+        ? { name: flag.name, description: flag.description, isEnabled: true }
+        : { name: flag.name, description: flag.description },
       create: { ...flag, isEnabled: true }
     });
   }
@@ -211,6 +223,13 @@ async function main() {
     await seedMissions(prisma);
   } catch (e) {
     console.warn('Mission seed skipped:', e.message);
+  }
+
+  try {
+    const { seedBadges } = require('../seed_badges');
+    await seedBadges(prisma);
+  } catch (e) {
+    console.warn('Badge seed skipped:', e.message);
   }
 
   console.log('Admin/RBAC seed completed successfully!');

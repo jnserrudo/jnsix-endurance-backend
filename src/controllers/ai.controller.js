@@ -2,6 +2,39 @@ const aiService = require('../services/ai.service');
 const { APP_BRAND_BADGE } = require('../constants/brand');
 const prisma = require('../lib/prisma');
 
+/** Formatea zonas FC/ritmo/potencia del atleta para inyectar en prompts de IA. */
+const formatAthleteZones = (user) => {
+  if (!user) return '';
+  const parts = [];
+  if (user.hrZones) {
+    parts.push(`Zonas de frecuencia cardíaca (hrZones): ${JSON.stringify(user.hrZones)}`);
+  }
+  if (user.paceZones) {
+    parts.push(`Zonas de ritmo (paceZones): ${JSON.stringify(user.paceZones)}`);
+  }
+  if (user.powerZones) {
+    parts.push(`Zonas de potencia (powerZones): ${JSON.stringify(user.powerZones)}`);
+  }
+  if (!parts.length) return '';
+  return `\nZONAS DEL ATLETA (usá estas referencias al hablar de intensidad/esfuerzo):\n${parts.join('\n')}\n`;
+};
+
+const loadUserZones = async (userId) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { hrZones: true, paceZones: true, powerZones: true },
+  });
+  return formatAthleteZones(user);
+};
+
+/** Anexa zonas al prompt; si no hay customPrompt, construye el prompt base + zonas. */
+const withZonesPrompt = async (userId, activity, analysisType, customPrompt) => {
+  const zonesBlock = await loadUserZones(userId);
+  if (!zonesBlock) return customPrompt || null;
+  const base = customPrompt || aiService.buildPrompt(activity, analysisType);
+  return `${base}${zonesBlock}`;
+};
+
 const analyzeActivity = async (req, res) => {
   try {
     const { id } = req.params;
@@ -31,7 +64,8 @@ const analyzeActivity = async (req, res) => {
     }
 
     console.log('Activity found, calling AI service...');
-    const result = await aiService.analyzeActivity(activity, analysisType, customPrompt);
+    const effectivePrompt = await withZonesPrompt(userId, activity, analysisType, customPrompt);
+    const result = await aiService.analyzeActivity(activity, analysisType, effectivePrompt);
     console.log('AI service result:', { model: result.model, tokensUsed: result.tokensUsed });
 
     const analysis = await prisma.aIAnalysis.create({
@@ -62,10 +96,18 @@ const generateTrainingPlan = async (req, res) => {
       return res.status(400).json({ error: 'Necesitamos un objetivo para continuar.' });
     }
 
+    const zonesUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { hrZones: true, paceZones: true, powerZones: true },
+    });
+
     const userProfile = {
       level,
       availability,
-      currentDistance
+      currentDistance,
+      hrZones: zonesUser?.hrZones || null,
+      paceZones: zonesUser?.paceZones || null,
+      powerZones: zonesUser?.powerZones || null,
     };
 
     const result = await aiService.generateTrainingPlan(userProfile, goal, weeks);
@@ -121,10 +163,17 @@ Incluye secciones Markdown con ## (sin numeración) y viñetas (-):
 - Estrategia mental
 `;
 
-    const result = await aiService.analyzeActivity(
+    const effectivePrompt = await withZonesPrompt(
+      userId,
       activity || { distanceKm: raceDistance, elevationM: raceElevation },
       'RACE_STRATEGY',
       customPrompt
+    );
+
+    const result = await aiService.analyzeActivity(
+      activity || { distanceKm: raceDistance, elevationM: raceElevation },
+      'RACE_STRATEGY',
+      effectivePrompt
     );
 
     const analysis = await prisma.aIAnalysis.create({
@@ -314,42 +363,66 @@ const getAnalysisHistory = async (req, res) => {
   }
 };
 
+const MONTHLY_AI_LIMITS = { FREE: 20, PRO: 200 };
+
+const resolveMonthlyAiLimit = (subscriptionTier) => {
+  const tier = String(subscriptionTier || 'FREE').toUpperCase();
+  if (tier === 'FREE') return MONTHLY_AI_LIMITS.FREE;
+  return MONTHLY_AI_LIMITS.PRO;
+};
+
 const getUsageStats = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const totalAnalyses = await prisma.aIAnalysis.count({
-      where: { userId }
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { subscriptionTier: true },
     });
 
-    const totalTokens = await prisma.aIAnalysis.aggregate({
-      where: { userId },
-      _sum: { tokensUsed: true }
-    });
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
 
-    const analysesByType = await prisma.aIAnalysis.groupBy({
-      by: ['type'],
-      where: { userId },
-      _count: true
-    });
+    const [used, totalAnalyses, totalTokens, analysesByType, recentAnalyses] = await Promise.all([
+      prisma.aIAnalysis.count({
+        where: { userId, createdAt: { gte: startOfMonth } },
+      }),
+      prisma.aIAnalysis.count({ where: { userId } }),
+      prisma.aIAnalysis.aggregate({
+        where: { userId },
+        _sum: { tokensUsed: true },
+      }),
+      prisma.aIAnalysis.groupBy({
+        by: ['type'],
+        where: { userId },
+        _count: true,
+      }),
+      prisma.aIAnalysis.findMany({
+        where: { userId },
+        take: 5,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          type: true,
+          createdAt: true,
+          tokensUsed: true,
+        },
+      }),
+    ]);
 
-    const recentAnalyses = await prisma.aIAnalysis.findMany({
-      where: { userId },
-      take: 5,
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        type: true,
-        createdAt: true,
-        tokensUsed: true
-      }
-    });
+    const limit = resolveMonthlyAiLimit(user?.subscriptionTier);
+    const remaining = Math.max(0, limit - used);
 
     res.json({
+      used,
+      limit,
+      remaining,
+      tier: user?.subscriptionTier || 'FREE',
       totalAnalyses,
       totalTokens: totalTokens._sum.tokensUsed || 0,
       analysesByType,
-      recentAnalyses
+      recentAnalyses,
     });
   } catch (error) {
     console.error('[ERROR]', error);
@@ -568,10 +641,37 @@ Responde en Markdown móvil: secciones ## sin numerar y viñetas (-):
   }
 };
 
+const DISCIPLINE_TONES = {
+  trail: `Tono disciplina TRAIL: priorizá desnivel, fuerza de piernas, técnica de bajada, gestión de fatiga en ultra/trail y nutrición de montaña.`,
+  tri: `Tono disciplina TRIATLÓN: equilibrá natación, bici y carrera; hablá de transiciones, brick, distribución de carga y recuperación entre disciplinas.`,
+  '10k': `Tono disciplina 10K / ruta: enfocá ritmo, umbral, series, economía de carrera y progresión de volumen en asfalto.`,
+  ride: `Tono disciplina CICLISMO: priorizá potencia/FTP, zonas de esfuerzo, cadencia, volumen en bici y recuperación muscular específica.`,
+};
+
+const resolveDisciplineTone = (primarySport) => {
+  const s = String(primarySport || '').toUpperCase();
+  if (s.includes('TRAIL')) return 'trail';
+  if (s.includes('TRI') || s.includes('SWIM') || s.includes('NATAC')) return 'tri';
+  if (s.includes('RIDE') || s.includes('BIKE') || s.includes('CICL') || s.includes('CYCL')) return 'ride';
+  return '10k';
+};
+
+const formatCoachMemory = (coachMemory) => {
+  if (!coachMemory || typeof coachMemory !== 'object') return 'Sin memoria del coach guardada.';
+  try {
+    const entries = Object.entries(coachMemory)
+      .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+      .map(([k, v]) => `- ${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`);
+    return entries.length ? entries.join('\n') : 'Sin memoria del coach guardada.';
+  } catch {
+    return 'Sin memoria del coach guardada.';
+  }
+};
+
 const chatWithCoach = async (req, res) => {
   try {
     const userId = req.user.id;
-    let { messages, message, mode } = req.body;
+    let { messages, message, mode, conversationId, activityId } = req.body;
     const chatMode = mode === 'chat' ? 'chat' : 'coach';
 
     if (!messages && !message) {
@@ -582,7 +682,35 @@ const chatWithCoach = async (req, res) => {
       messages = [{ role: 'user', content: message }];
     }
 
-    // Obtener las últimas 15 actividades del atleta para el contexto de entrenamiento
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'Escribí un mensaje para continuar.' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        coachMemory: true,
+        primarySport: true,
+        experienceLevel: true,
+        firstName: true,
+        hrZones: true,
+        paceZones: true,
+        powerZones: true,
+      },
+    });
+
+    const zonesBlock = formatAthleteZones(user);
+
+    let existingConversation = null;
+    if (conversationId) {
+      existingConversation = await prisma.aIConversation.findFirst({
+        where: { id: conversationId, userId },
+      });
+      if (!existingConversation) {
+        return res.status(404).json({ error: 'No encontramos esa conversación.' });
+      }
+    }
+
     const recentActivities = await prisma.activity.findMany({
       where: { userId },
       orderBy: { startDate: 'desc' },
@@ -595,50 +723,498 @@ const chatWithCoach = async (req, res) => {
         movingTime: true,
         startDate: true,
         averageHr: true,
-        maxHr: true
-      }
+        maxHr: true,
+      },
     });
 
-    const activitiesSummary = recentActivities.map(a => 
-      `- Fecha: ${a.startDate.toISOString().split('T')[0]} | Nombre: ${a.name} | Tipo: ${a.type} | Distancia: ${a.distanceKm.toFixed(2)} km | Desnivel: ${Math.round(a.elevationM)}m | Tiempo: ${Math.floor(a.movingTime/60)}m ${a.movingTime%60}s | FC Promedio: ${a.averageHr || 'N/A'} bpm`
-    ).join('\n');
+    const activitiesSummary = recentActivities
+      .map(
+        (a) =>
+          `- Fecha: ${a.startDate.toISOString().split('T')[0]} | Nombre: ${a.name} | Tipo: ${a.type} | Distancia: ${a.distanceKm.toFixed(2)} km | Desnivel: ${Math.round(a.elevationM)}m | Tiempo: ${Math.floor(a.movingTime / 60)}m ${a.movingTime % 60}s | FC Promedio: ${a.averageHr || 'N/A'} bpm`
+      )
+      .join('\n');
 
-    const systemPrompt = chatMode === 'chat'
-      ? `Eres ${APP_BRAND_BADGE} AI Coach en modo conversación amigable.
+    let anchoredActivityBlock = '';
+    if (activityId) {
+      const activity = await prisma.activity.findFirst({
+        where: {
+          id: activityId,
+          OR: [{ userId }, { isExternal: true }],
+        },
+        include: {
+          laps: { orderBy: { splitNum: 'asc' }, take: 20 },
+        },
+      });
+      if (activity) {
+        const pace =
+          activity.distanceKm > 0
+            ? (activity.movingTime / 60 / activity.distanceKm).toFixed(2)
+            : 'N/A';
+        anchoredActivityBlock = `
+ACTIVIDAD ANCLA (analizá prioritariamente esta sesión):
+- Nombre: ${activity.name}
+- Tipo: ${activity.type}
+- Distancia: ${activity.distanceKm.toFixed(2)} km
+- Desnivel: ${Math.round(activity.elevationM || 0)} m
+- Tiempo: ${formatTime(activity.movingTime)}
+- Ritmo: ${pace} min/km
+- FC prom/máx: ${activity.averageHr || 'N/A'} / ${activity.maxHr || 'N/A'} bpm
+- Splits: ${
+          activity.laps?.length
+            ? activity.laps
+                .map((l) => `Km ${l.splitNum}: ${Number(l.averagePace || 0).toFixed(2)} min/km`)
+                .join('; ')
+            : 'Sin splits'
+        }
+`;
+      }
+    }
+
+    const disciplineKey = resolveDisciplineTone(user?.primarySport);
+    const disciplineTone = DISCIPLINE_TONES[disciplineKey];
+    const memoryBlock = formatCoachMemory(user?.coachMemory);
+    const athleteName = user?.firstName || 'Atleta';
+
+    const systemPrompt =
+      chatMode === 'chat'
+        ? `Eres ${APP_BRAND_BADGE} AI Coach en modo conversación amigable con ${athleteName}.
 Podés saludar, motivar y charlar con naturalidad. Si el atleta pregunta por entrenamiento, usá su historial reciente con criterio.
 No fuerces un análisis técnico si solo está saludando o haciendo una pregunta casual.
+${disciplineTone}
+Memoria del coach (lesiones, preferencias, contexto persistente):
+${memoryBlock}
+${zonesBlock}
 Historial reciente (solo si hace falta):
 ${activitiesSummary || 'Sin actividades aún.'}
-Respuestas cortas en Markdown legible en móvil. Sin emojis.`
-      : `Eres ${APP_BRAND_BADGE} AI Coach, un entrenador personal y consultor deportivo experto en triatlón, ciclismo, trail running y natación.
-Tu objetivo es guiar al atleta con respuestas basadas en la ciencia del deporte, siendo alentador, profesional y muy técnico.
+${anchoredActivityBlock}
+Respuestas cortas en Markdown legible en móvil. Sin emojis. Español rioplatense.`
+        : `Eres ${APP_BRAND_BADGE} AI Coach, entrenador personal experto en triatlón, ciclismo, trail running y natación.
+Atleta: ${athleteName}. Nivel: ${user?.experienceLevel || 'No especificado'}. Deporte principal: ${user?.primarySport || 'No especificado'}.
+${disciplineTone}
 
-Aquí tienes el historial reciente de las últimas 15 actividades del atleta en la plataforma:
+Memoria del coach (respetá lesiones, preferencias y restricciones):
+${memoryBlock}
+${zonesBlock}
+
+Historial reciente (últimas 15 actividades):
 ${activitiesSummary || 'El atleta no tiene actividades registradas todavía.'}
+${anchoredActivityBlock}
 
-Usa este historial deportivo como contexto principal para responder preguntas sobre su volumen de entrenamiento, fatiga, consejos de recuperación, ritmos, progresiones y planeamiento de sesiones.
-Si te preguntan algo fuera de su contexto o de entrenamiento, redirígelos amablemente hacia su preparación física.
-Proporciona respuestas cortas, directas y formateadas en Markdown claras y legibles en dispositivos móviles.
-Formato Markdown preferido: títulos ## sin numeración, viñetas (-) en lugar de listas numeradas, párrafos breves y escaneables. No utilices ningún tipo de emoji en tus respuestas, solo texto plano o markdown.`;
+Usá este contexto para fatiga, ritmos, recuperación y planificación.
+Si preguntan algo fuera de entrenamiento, redirigilos amablemente.
+Markdown móvil: ## sin numerar, viñetas (-), párrafos breves. Sin emojis. Español.`;
 
     const result = await aiService.chatWithCoach(systemPrompt, messages);
 
-    // Registrar en el historial de uso de IA
+    const updatedMessages = [
+      ...messages.map((m) => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: String(m.content || ''),
+      })),
+      { role: 'assistant', content: result.response },
+    ];
+
+    const firstUserMsg = updatedMessages.find((m) => m.role === 'user')?.content || 'Chat con Coach';
+    const title =
+      existingConversation?.title ||
+      (firstUserMsg.length > 60 ? `${firstUserMsg.slice(0, 57)}...` : firstUserMsg);
+
+    const conversation = existingConversation
+      ? await prisma.aIConversation.update({
+          where: { id: existingConversation.id },
+          data: { messages: updatedMessages, mode: chatMode, title },
+        })
+      : await prisma.aIConversation.create({
+          data: {
+            userId,
+            mode: chatMode,
+            title,
+            messages: updatedMessages,
+          },
+        });
+
     await prisma.aIAnalysis.create({
       data: {
         userId,
+        activityId: activityId || null,
         type: 'GENERAL_INSIGHT',
         prompt: messages[messages.length - 1]?.content || 'Chat con el Coach',
         response: result.response,
         model: result.model,
-        tokensUsed: result.tokensUsed
-      }
+        tokensUsed: result.tokensUsed,
+      },
     });
 
-    res.json({ response: result.response });
+    res.json({
+      response: result.response,
+      conversationId: conversation.id,
+      mode: chatMode,
+    });
   } catch (error) {
     console.error('Error in chatWithCoach:', error);
     console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
+  }
+};
+
+const listConversations = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { q } = req.query;
+    const search = (typeof q === 'string' ? q.trim() : '').toLowerCase();
+
+    const conversations = await prisma.aIConversation.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      // Con búsqueda traemos más registros para poder filtrar por contenido
+      // (los mensajes están en un campo JSON, no consultable directamente).
+      take: search ? 200 : 50,
+      select: {
+        id: true,
+        mode: true,
+        title: true,
+        messages: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    const mapped = conversations.map((c) => {
+      const msgs = Array.isArray(c.messages) ? c.messages : [];
+      const last = msgs[msgs.length - 1];
+      const title = c.title || 'Conversación';
+      const haystack = [
+        title,
+        ...msgs.map((m) => String(m?.content || '')),
+      ]
+        .join('\n')
+        .toLowerCase();
+      return {
+        id: c.id,
+        mode: c.mode,
+        title,
+        preview: last?.content ? String(last.content).slice(0, 120) : '',
+        messageCount: msgs.length,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        _haystack: haystack,
+      };
+    });
+
+    const filtered = (search ? mapped.filter((c) => c._haystack.includes(search)) : mapped)
+      .slice(0, 50)
+      .map(({ _haystack, ...c }) => c);
+
+    res.json({ conversations: filtered });
+  } catch (error) {
+    console.error('[ERROR] listConversations:', error);
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
+  }
+};
+
+const getConversation = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const conversation = await prisma.aIConversation.findFirst({
+      where: { id, userId },
+    });
+    if (!conversation) {
+      return res.status(404).json({ error: 'No encontramos esa conversación.' });
+    }
+    res.json(conversation);
+  } catch (error) {
+    console.error('[ERROR] getConversation:', error);
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
+  }
+};
+
+const deleteConversation = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const conversation = await prisma.aIConversation.findFirst({
+      where: { id, userId },
+    });
+    if (!conversation) {
+      return res.status(404).json({ error: 'No encontramos esa conversación.' });
+    }
+    await prisma.aIConversation.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[ERROR] deleteConversation:', error);
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
+  }
+};
+
+const predictRace = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { competitionGoalId } = req.query;
+
+    if (!competitionGoalId) {
+      return res.status(400).json({ error: 'Indicá el objetivo de competencia.' });
+    }
+
+    const competition = await prisma.competitionGoal.findFirst({
+      where: { id: competitionGoalId, userId },
+    });
+    if (!competition) {
+      return res.status(404).json({ error: 'No encontramos esa competencia.' });
+    }
+
+    const runTypes = ['RUN', 'TRAIL_RUN', 'VIRTUAL_RUN'];
+    const recentRuns = await prisma.activity.findMany({
+      where: {
+        userId,
+        type: { in: runTypes },
+        distanceKm: { gte: 3 },
+        movingTime: { gt: 0 },
+      },
+      orderBy: { startDate: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        distanceKm: true,
+        movingTime: true,
+        elevationM: true,
+        startDate: true,
+      },
+    });
+
+    if (recentRuns.length === 0) {
+      return res.json({
+        competitionGoalId,
+        prediction: null,
+        text: 'Todavía no hay carreras recientes suficientes para estimar un tiempo. Sumá unos fondos o tempo y volvé a consultar.',
+        method: null,
+      });
+    }
+
+    const withPace = recentRuns.map((r) => ({
+      ...r,
+      paceMinPerKm: r.movingTime / 60 / r.distanceKm,
+    }));
+    withPace.sort((a, b) => a.paceMinPerKm - b.paceMinPerKm);
+    const best = withPace[0];
+    const top3 = withPace.slice(0, Math.min(3, withPace.length));
+    const avgBestPace =
+      top3.reduce((s, r) => s + r.paceMinPerKm, 0) / top3.length;
+
+    // Extrapolación tipo Riegel / Daniels simplificada: T2 = T1 * (D2/D1)^1.06
+    const refDistance = best.distanceKm;
+    const refTime = best.movingTime;
+    const targetDistance = competition.distanceKm || refDistance;
+    const riegelSeconds = refTime * Math.pow(targetDistance / refDistance, 1.06);
+
+    // Ajuste por desnivel (heurística ~ +3% por cada 100 m extra relativos al km)
+    const elevPerKm = (competition.elevationM || 0) / Math.max(targetDistance, 0.1);
+    const elevFactor = 1 + Math.min(0.25, (elevPerKm / 100) * 0.03);
+    const adjustedSeconds = riegelSeconds * elevFactor;
+
+    // Escenarios
+    const optimistic = adjustedSeconds * 0.97;
+    const realistic = adjustedSeconds;
+    const conservative = adjustedSeconds * 1.06;
+
+    const fmt = (sec) => formatTime(Math.round(sec));
+    const paceOf = (sec) => (sec / 60 / targetDistance).toFixed(2);
+
+    const text = `## Predicción para ${competition.name}
+
+Basado en ${recentRuns.length} corridas recientes (mejor referencia: ${best.name}, ${best.distanceKm.toFixed(1)} km a ${best.paceMinPerKm.toFixed(2)} min/km). Método: extrapolación Riegel (exponente 1.06) con ajuste por desnivel.
+
+- **Optimista:** ${fmt(optimistic)} (${paceOf(optimistic)} min/km)
+- **Realista:** ${fmt(realistic)} (${paceOf(realistic)} min/km)
+- **Conservador:** ${fmt(conservative)} (${paceOf(conservative)} min/km)
+
+Ritmo promedio de tus 3 mejores recientes: ${avgBestPace.toFixed(2)} min/km. Usá el escenario realista como referencia de pacing; si el terreno es técnico o hay mucho desnivel, acercate al conservador.`;
+
+    res.json({
+      competitionGoalId,
+      targetDistanceKm: targetDistance,
+      targetElevationM: competition.elevationM || 0,
+      referenceActivity: {
+        id: best.id,
+        name: best.name,
+        distanceKm: best.distanceKm,
+        paceMinPerKm: Number(best.paceMinPerKm.toFixed(2)),
+      },
+      prediction: {
+        optimisticSeconds: Math.round(optimistic),
+        realisticSeconds: Math.round(realistic),
+        conservativeSeconds: Math.round(conservative),
+        optimistic: fmt(optimistic),
+        realistic: fmt(realistic),
+        conservative: fmt(conservative),
+        realisticPaceMinPerKm: Number(paceOf(realistic)),
+      },
+      text,
+      method: 'riegel_elevation_adjusted',
+    });
+  } catch (error) {
+    console.error('[ERROR] predictRace:', error);
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
+  }
+};
+
+// Escapa texto según RFC 5545 (comas, punto y coma, backslash y saltos de línea).
+const escapeIcs = (value) =>
+  String(value == null ? '' : value)
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r?\n/g, '\\n');
+
+// Formatea una fecha como valor DATE de ICS (YYYYMMDD) en horario local del plan.
+const toIcsDate = (date) => {
+  const d = new Date(date);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}${m}${day}`;
+};
+
+const toIcsStamp = (date) => {
+  const d = new Date(date);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(
+    d.getUTCHours()
+  )}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+};
+
+const buildPlanIcs = (plan, userPlan) => {
+  const startDate = new Date(userPlan.startDate || Date.now());
+  startDate.setHours(0, 0, 0, 0);
+  const stamp = toIcsStamp(new Date());
+
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    `PRODID:-//${APP_BRAND_BADGE}//Plan de entrenamiento//ES`,
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:${escapeIcs(plan.name)}`,
+  ];
+
+  for (const session of plan.sessions) {
+    const offsetDays = (Math.max(1, session.week) - 1) * 7 + (Math.max(1, session.day) - 1);
+    const sessionDate = new Date(startDate);
+    sessionDate.setDate(sessionDate.getDate() + offsetDays);
+    const endDate = new Date(sessionDate);
+    endDate.setDate(endDate.getDate() + 1);
+
+    const descParts = [];
+    if (session.description) descParts.push(session.description);
+    if (session.targetMetric && session.targetValue != null) {
+      const unit = session.targetMetric === 'DISTANCE' ? 'km' : 'min';
+      descParts.push(`Objetivo: ${session.targetValue} ${unit}`);
+    }
+    if (session.rationale) descParts.push(`Por qué: ${session.rationale}`);
+
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:${session.id}@jnsix-endurance`);
+    lines.push(`DTSTAMP:${stamp}`);
+    lines.push(`DTSTART;VALUE=DATE:${toIcsDate(sessionDate)}`);
+    lines.push(`DTEND;VALUE=DATE:${toIcsDate(endDate)}`);
+    lines.push(`SUMMARY:${escapeIcs(`Sem ${session.week} · ${session.name}`)}`);
+    if (descParts.length) lines.push(`DESCRIPTION:${escapeIcs(descParts.join('\n'))}`);
+    lines.push('END:VEVENT');
+  }
+
+  lines.push('END:VCALENDAR');
+  // ICS usa CRLF como separador de línea.
+  return lines.join('\r\n');
+};
+
+const exportPlan = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { userPlanId } = req.params;
+    const format = String(req.query.format || '').toLowerCase();
+
+    const userPlan = await prisma.userPlan.findFirst({
+      where: { id: userPlanId, userId },
+      include: {
+        plan: {
+          include: {
+            sessions: { orderBy: [{ week: 'asc' }, { day: 'asc' }] },
+          },
+        },
+        competitionGoal: { select: { name: true, targetDate: true, distanceKm: true } },
+      },
+    });
+
+    if (!userPlan || !userPlan.plan) {
+      return res.status(404).json({ error: 'No encontramos ese plan.' });
+    }
+
+    if (format === 'ics') {
+      const ics = buildPlanIcs(userPlan.plan, userPlan);
+      const safeName = String(userPlan.plan.name || 'plan')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'plan';
+      res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}.ics"`);
+      return res.status(200).send(ics);
+    }
+
+    const plan = userPlan.plan;
+    const lines = [];
+    lines.push(`# ${plan.name}`);
+    lines.push('');
+    if (plan.description) {
+      lines.push(plan.description);
+      lines.push('');
+    }
+    lines.push(`- Nivel: ${plan.level}`);
+    lines.push(`- Semanas: ${plan.weeks}`);
+    lines.push(`- Inicio: ${new Date(userPlan.startDate).toLocaleDateString('es-AR')}`);
+    if (userPlan.competitionGoal) {
+      lines.push(
+        `- Objetivo: ${userPlan.competitionGoal.name}${
+          userPlan.competitionGoal.distanceKm
+            ? ` (${userPlan.competitionGoal.distanceKm} km)`
+            : ''
+        }`
+      );
+    }
+    lines.push('');
+
+    let currentWeek = null;
+    for (const session of plan.sessions) {
+      if (session.week !== currentWeek) {
+        currentWeek = session.week;
+        lines.push(`## Semana ${currentWeek}`);
+        lines.push('');
+      }
+      lines.push(`### Día ${session.day}: ${session.name}`);
+      if (session.description) lines.push(session.description);
+      if (session.targetMetric && session.targetValue != null) {
+        const unit = session.targetMetric === 'DISTANCE' ? 'km' : 'min';
+        lines.push(`- Objetivo: ${session.targetValue} ${unit}`);
+      }
+      if (session.rationale) lines.push(`- Por qué: ${session.rationale}`);
+      lines.push(`- Estado: ${session.status || 'PENDING'}`);
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push(`Exportado desde ${APP_BRAND_BADGE}`);
+
+    const markdown = lines.join('\n');
+    res.json({
+      userPlanId,
+      planName: plan.name,
+      markdown,
+      text: markdown,
+      format: 'markdown',
+    });
+  } catch (error) {
+    console.error('[ERROR] exportPlan:', error);
     res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
@@ -705,9 +1281,10 @@ const analyzeCompetitionGoal = async (req, res) => {
 - Detalle por kilómetro (splits): ${s.laps.map(l => `\n  * Km ${l.splitNum}: ${l.distance.toFixed(2)}km en pace ${l.averagePace.toFixed(2)} min/km (FC: ${l.averageHr || 'N/A'})`).join('')}`;
     }).join('\n\n');
 
-    // 4. Formular el prompt científico-deportivo integral
+    const zonesBlock = await loadUserZones(userId);
     const systemPrompt = `Eres ${APP_BRAND_BADGE} AI Strategy Coach, un director deportivo e ingeniero de rendimiento experto en planificación, ritmo (pacing) y nutrición de ultra-distancia, trail running, ciclismo y triatlón.
-Tu tarea es analizar el objetivo de competencia del atleta frente a su historial deportivo y sus entrenamientos de simulación específicos elegidos por él. Entregarás un reporte extremadamente profesional, motivador y con base científica en Markdown.`;
+Tu tarea es analizar el objetivo de competencia del atleta frente a su historial deportivo y sus entrenamientos de simulación específicos elegidos por él. Entregarás un reporte extremadamente profesional, motivador y con base científica en Markdown.
+${zonesBlock}`;
 
     const userPrompt = `Analiza mi preparación para la siguiente competencia objetivo:
 
@@ -936,6 +1513,11 @@ module.exports = {
   compareActivities,
   analyzeTrends,
   chatWithCoach,
+  listConversations,
+  getConversation,
+  deleteConversation,
+  predictRace,
+  exportPlan,
   analyzeCompetitionGoal,
   suggestComplementaryExercises,
   getDailyBriefing,

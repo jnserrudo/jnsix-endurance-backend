@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
+const reportsController = require('../controllers/reports.controller');
 const { authenticateToken } = require('../middleware/auth.middleware');
 const { requirePermission } = require('../middleware/rbac.middleware');
 
@@ -55,6 +56,10 @@ router.get('/audit-logs/:id', requirePermission('audit.view'), adminController.g
 router.delete('/posts/:id', requirePermission('content.moderate'), adminController.deletePost);
 router.delete('/groups/:id', requirePermission('content.moderate'), adminController.deleteGroup);
 
+// Reportes de contenido
+router.get('/reports', requirePermission('content.moderate'), reportsController.listReports);
+router.patch('/reports/:id', requirePermission('content.moderate'), reportsController.updateReport);
+
 // Ejercicios (Librería Global)
 router.get('/exercises', requirePermission('exercises.manage'), adminController.listAdminExercises);
 router.post('/exercises', requirePermission('exercises.manage'), adminController.createExercise);
@@ -67,9 +72,16 @@ router.patch('/businesses/:id/approve', requirePermission('businesses.moderate')
 router.patch('/businesses/:id/reject', requirePermission('businesses.moderate'), adminController.rejectBusiness);
 router.patch('/businesses/:id/suspend', requirePermission('businesses.moderate'), adminController.suspendBusiness);
 
+router.get('/settlements', requirePermission('businesses.moderate'), adminController.listAdminSettlements);
+router.post('/settlements/generate', requirePermission('businesses.moderate'), adminController.generateSettlements);
+
+router.get('/stories', requirePermission('content.moderate'), adminController.listAdminStories);
+router.delete('/stories/:id', requirePermission('content.moderate'), adminController.deleteAdminStory);
+
 router.get('/rewards', requirePermission('rewards.moderate'), adminController.listAdminRewards);
 router.patch('/rewards/:id/status', requirePermission('rewards.moderate'), adminController.updateAdminRewardStatus);
 router.post('/notifications/test', adminController.sendTestNotification);
+router.post('/digest/run', requirePermission('users.manage'), adminController.runWeeklyDigest);
 
 // Misiones y Logros
 router.get('/missions', requirePermission('rankings.manage'), adminController.listMissions);

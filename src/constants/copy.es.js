@@ -9,6 +9,9 @@ const copy = {
   workoutCompleted: (name) => `Entrenamiento completado: ${name}`,
   streakBonus: (days) => `Bonus de racha: ${days} días`,
   streakBonusContains: (days) => `Bonus de racha: ${days} días`,
+  dailyCombo: () => 'Bonus combo del día: entrená + publicá + reaccioná',
+  badgeUnlocked: (name) => `Insignia desbloqueada: ${name}`,
+  duelChallenge: (name) => `${name} te desafió a un duelo`,
 };
 
 /** Catálogo base de logros (nombre único en DB). */

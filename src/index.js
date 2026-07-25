@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const sentry = require('./lib/sentry');
+sentry.init();
 
 const authRoutes = require('./routes/auth.routes');
 const activitiesRoutes = require('./routes/activities.routes');
@@ -25,6 +27,7 @@ const notificationsRoutes = require('./routes/notifications.routes');
 const plansRoutes = require('./routes/plans.routes');
 const stripeRoutes = require('./routes/stripe.routes');
 const gamificationRoutes = require('./routes/gamification.routes');
+const duelsRoutes = require('./routes/duels.routes');
 const storiesRoutes = require('./routes/stories.routes');
 const trainingPlansRoutes = require('./routes/trainingPlans.routes');
 const segmentsRoutes = require('./routes/segments.routes');
@@ -34,6 +37,9 @@ const scoringRoutes = require('./routes/scoring.routes');
 const businessesRoutes = require('./routes/businesses.routes');
 const rewardsRoutes = require('./routes/rewards.routes');
 const redemptionsRoutes = require('./routes/redemptions.routes');
+const reportsRoutes = require('./routes/reports.routes');
+const eventsRoutes = require('./routes/events.routes');
+const savedSessionsRoutes = require('./routes/savedSessions.routes');
 const authController = require('./controllers/auth.controller');
 const { auditContextMiddleware } = require('./services/audit.service');
 const { initSocket } = require('./services/socket.service');
@@ -47,26 +53,11 @@ const PORT = process.env.PORT || 5000;
 // Start background cron jobs
 startCronJobs();
 
+const { isOriginAllowed } = require('./lib/corsOrigins');
+
 app.use(cors({
   origin: (origin, callback) => {
-    const allowedOrigins = [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'https://jnsix-endurance.onrender.com',
-      'https://jnsix-endurance.duckdns.org'
-    ];
-    // Mobile apps / curl often send no Origin
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    // Expo Go / LAN during development (iOS + Android)
-    if (
-      /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin) ||
-      origin.startsWith('exp://')
-    ) {
-      return callback(null, true);
-    }
+    if (isOriginAllowed(origin)) return callback(null, true);
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true
@@ -109,6 +100,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/plans', plansRoutes);
 app.use('/api/gamification', gamificationRoutes);
+app.use('/api/duels', duelsRoutes);
 app.use('/api/stories', storiesRoutes);
 app.use('/api/training-plans', trainingPlansRoutes);
 app.use('/api/segments', segmentsRoutes);
@@ -118,6 +110,9 @@ app.use('/api/scoring', scoringRoutes);
 app.use('/api/businesses', businessesRoutes);
 app.use('/api/rewards', rewardsRoutes);
 app.use('/api/redemptions', redemptionsRoutes);
+app.use('/api/reports', reportsRoutes);
+app.use('/api/events', eventsRoutes);
+app.use('/api/saved-sessions', savedSessionsRoutes);
 
 
 // Ruta especial para callback de Strava (sin /api para compatibilidad con Strava)
@@ -132,4 +127,10 @@ initSocket(httpServer);
 httpServer.listen(PORT, () => {
   console.log(`JNSIX Endurance Analytics API running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+
+  // Reanudar cola durable de sync (PENDING/RUNNING) tras reinicio
+  const syncQueueService = require('./services/syncQueue.service');
+  syncQueueService.resumePendingJobs().catch((err) => {
+    console.error('[SyncQueue] Error al reanudar jobs pendientes:', err.message);
+  });
 });

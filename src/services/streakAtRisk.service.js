@@ -72,10 +72,10 @@ async function sendStreakAtRiskNotifications() {
     if (streak < 2) continue;
 
     try {
-      await notify(userId, 'SYSTEM', {
+      await notify(userId, 'STREAK_AT_RISK', {
         title: 'Tu racha está en riesgo',
         body: `Llevás ${streak} días. Si no registrás una actividad hoy, se reinicia.`,
-        payload: { kind: 'streak_at_risk', streak },
+        payload: { type: 'STREAK_AT_RISK', kind: 'streak_at_risk', streak, screen: 'Dashboard' },
         dedupeKey: `streak-at-risk-${dayKey}`,
         dedupeSeconds: 20 * 3600,
       });

@@ -328,6 +328,9 @@ Perfil del atleta:
 - Peso: ${userProfile.weightKg || 'No especificado'} kg
 - Altura: ${userProfile.heightCm || 'No especificada'} cm
 - Género: ${userProfile.gender || 'No especificado'}
+${userProfile.hrZones ? `- Zonas FC (hrZones): ${JSON.stringify(userProfile.hrZones)}` : ''}
+${userProfile.paceZones ? `- Zonas de ritmo (paceZones): ${JSON.stringify(userProfile.paceZones)}` : ''}
+${userProfile.powerZones ? `- Zonas de potencia (powerZones): ${JSON.stringify(userProfile.powerZones)}` : ''}
 - Objetivo: ${goal.goal}
 - Disciplina objetivo: ${goal.sportType || 'No especificada'}
 - Distancia objetivo: ${goal.targetDistance ?? 'No especificada'} km
@@ -345,13 +348,38 @@ Perfil del atleta:
 - RPE preferido: ${goal.preferredRpe ?? 'No especificado'}
 - Incluir fuerza: ${goal.includeStrength === false ? 'No' : 'Sí'}
 
+Sesiones favoritas del atleta (incluir variantes cuando tenga sentido):
+${
+  (goal.savedSessions || []).length
+    ? goal.savedSessions
+        .map((s) => {
+          const target =
+            s.targetMetric && s.targetValue != null
+              ? ` (${s.targetValue} ${s.targetMetric === 'DISTANCE' ? 'km' : 'min'})`
+              : '';
+          return `- ${s.name}${target}${s.sportType ? ` [${s.sportType}]` : ''}${s.description ? `: ${s.description}` : ''}`;
+        })
+        .join('\n')
+    : '- Ninguna'
+}
+
+Ejercicios de fuerza disponibles (usá estos nombres en sesiones de fuerza si corresponde):
+${
+  (goal.strengthExercises || []).length
+    ? goal.strengthExercises
+        .map((e) => `- ${e.name} (${e.muscleGroup || e.target || 'general'}${e.equipment ? `, ${e.equipment}` : ''})`)
+        .join('\n')
+    : '- Catálogo no disponible'
+}
+
 Simulaciones recientes vinculadas:
 ${simulationSummary}
 
 Reglas:
 - Distribuye las sesiones solo en los días preferidos cuando estén informados.
 - Incluye progresión, semanas de descarga y taper antes de la fecha objetivo.
-- Incluye fuerza si fue solicitada.
+- Incluye fuerza si fue solicitada; en esas sesiones mencioná ejercicios concretos del listado cuando sea posible.
+- Si hay sesiones favoritas, incorporá al menos algunas a lo largo del plan.
 - Cada sesión debe indicar el esfuerzo/RPE dentro de description.
 - Genera todas las semanas del plan con una cantidad de sesiones coherente con la disponibilidad.
 
@@ -367,11 +395,14 @@ El formato JSON de salida debe ser exactamente:
       "day": 1,
       "name": "Carrera suave",
       "description": "Correr a ritmo conversacional",
+      "rationale": "Mantiene el volumen aeróbico sin acumular fatiga residual.",
       "targetMetric": "DISTANCE",
       "targetValue": 5
     }
   ]
 }
+
+Cada sesión DEBE incluir "rationale": una frase corta en español explicando por qué está esa sesión (adaptación, recuperación, especificidad, etc.).
 
 Responde SOLO el JSON.`;
 

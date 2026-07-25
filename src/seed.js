@@ -77,12 +77,13 @@ async function main() {
     { key: 'groups_enabled', name: 'Grupos' },
     { key: 'communities_enabled', name: 'Comunidades' },
     { key: 'rankings_enabled', name: 'Rankings' },
-    { key: 'challenges_enabled', name: 'Retos' }
+    { key: 'challenges_enabled', name: 'Retos' },
+    { key: 'stories_enabled', name: 'Stories' }
   ];
   for (const flag of flags) {
     await prisma.featureFlag.upsert({
       where: { key: flag.key },
-      update: {},
+      update: { isEnabled: true, name: flag.name },
       create: { ...flag, isEnabled: true }
     });
   }

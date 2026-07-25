@@ -7,19 +7,78 @@ const { notify } = require('../services/notifications.service');
 // ==========================================
 const getStats = async (req, res) => {
   try {
-    const totalUsers = await prisma.user.count({ where: { deletedAt: null } });
-    const activeUsers = await prisma.user.count({ where: { deletedAt: null, isActive: true } });
-    const transactions = await prisma.transaction.aggregate({
-      _sum: { amount: true },
-      where: { status: 'COMPLETED' }
-    });
-    const pendingBusinesses = await prisma.business.count({ where: { status: 'PENDING' } });
-    
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const [
+      totalUsers,
+      activeUsers,
+      transactions,
+      pendingBusinesses,
+      activeUsers7d,
+      posts7d,
+      usersWithActivity7d,
+      verifiedUsers,
+      onboardedUsers,
+      usersWithAnyActivity,
+    ] = await Promise.all([
+      prisma.user.count({ where: { deletedAt: null } }),
+      prisma.user.count({ where: { deletedAt: null, isActive: true } }),
+      prisma.transaction.aggregate({
+        _sum: { amount: true },
+        where: { status: 'COMPLETED' }
+      }),
+      prisma.business.count({ where: { status: 'PENDING' } }),
+      prisma.user.count({
+        where: {
+          deletedAt: null,
+          isActive: true,
+          OR: [
+            { lastSyncDate: { gte: weekAgo } },
+            { updatedAt: { gte: weekAgo } }
+          ]
+        }
+      }),
+      prisma.post.count({
+        where: {
+          createdAt: { gte: weekAgo },
+          deletedAt: null,
+          isActive: true
+        }
+      }),
+      prisma.user.count({
+        where: {
+          deletedAt: null,
+          activities: { some: { startDate: { gte: weekAgo } } },
+        },
+      }),
+      prisma.user.count({ where: { deletedAt: null, emailVerified: true } }),
+      prisma.user.count({ where: { deletedAt: null, onboardingCompleted: true } }),
+      prisma.user.count({
+        where: {
+          deletedAt: null,
+          activities: { some: {} },
+        },
+      }),
+    ]);
+
+    const retentionApprox =
+      totalUsers > 0 ? Math.round((usersWithActivity7d / totalUsers) * 1000) / 1000 : 0;
+
     res.json({
       totalUsers,
       activeUsers,
       totalRevenue: transactions._sum.amount || 0,
-      pendingBusinesses
+      pendingBusinesses,
+      activeUsers7d,
+      posts7d,
+      retentionApprox,
+      funnel: {
+        registered: totalUsers,
+        verified: verifiedUsers,
+        onboarded: onboardedUsers,
+        withActivity: usersWithAnyActivity,
+      },
     });
   } catch (error) {
     console.error('[ERROR]', error);
@@ -761,6 +820,91 @@ const approveBusiness = async (req, res) => {
       console.error('[ERROR] approveBusiness notify:', notifyErr.message);
     }
 
+    // Avisar atletas cercanos (o todos) que hay un nuevo local con beneficios
+    try {
+      const haversineKm = (lat1, lon1, lat2, lon2) => {
+        const R = 6371;
+        const toRad = (d) => (d * Math.PI) / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lon2 - lon1);
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      };
+
+      const NEARBY_KM = 50;
+      let athleteIds = [];
+
+      if (business.latitude != null && business.longitude != null) {
+        // Usuarios con negocio propio cerca no aplican; atletas vía check-ins recientes
+        // o sin geo → notificamos a todos los ATHLETE activos (límite razonable)
+        const athletes = await prisma.user.findMany({
+          where: { role: 'ATHLETE', isActive: true, deletedAt: null },
+          select: { id: true },
+          take: 500
+        });
+
+        // Preferir atletas con check-in cerca del negocio; si no hay, todos
+        const nearbyCheckIns = await prisma.businessCheckIn.findMany({
+          where: {
+            createdAt: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) }
+          },
+          select: { userId: true, businessId: true },
+          take: 2000
+        });
+
+        const bizWithCoords = await prisma.business.findMany({
+          where: {
+            id: { in: [...new Set(nearbyCheckIns.map((c) => c.businessId))] },
+            latitude: { not: null },
+            longitude: { not: null }
+          },
+          select: { id: true, latitude: true, longitude: true }
+        });
+        const bizMap = Object.fromEntries(bizWithCoords.map((b) => [b.id, b]));
+
+        const nearbyUserIds = new Set();
+        for (const ci of nearbyCheckIns) {
+          const b = bizMap[ci.businessId];
+          if (!b) continue;
+          const dist = haversineKm(business.latitude, business.longitude, b.latitude, b.longitude);
+          if (dist <= NEARBY_KM) nearbyUserIds.add(ci.userId);
+        }
+
+        athleteIds =
+          nearbyUserIds.size > 0
+            ? [...nearbyUserIds]
+            : athletes.map((a) => a.id);
+      } else {
+        const athletes = await prisma.user.findMany({
+          where: { role: 'ATHLETE', isActive: true, deletedAt: null },
+          select: { id: true },
+          take: 500
+        });
+        athleteIds = athletes.map((a) => a.id);
+      }
+
+      const title = 'Nuevo local en Beneficios';
+      const body = `"${business.name}" se sumó al Club. ¡Mirá sus recompensas!`;
+      for (const uid of athleteIds) {
+        if (uid === business.userId) continue;
+        await notify(uid, 'REWARD_AVAILABLE', {
+          title,
+          body,
+          payload: {
+            type: 'REWARD_AVAILABLE',
+            businessId: business.id,
+            screen: 'BusinessDetail'
+          },
+          dedupeKey: `business:new:${business.id}:${uid}`,
+          dedupeSeconds: 7 * 24 * 60 * 60
+        }).catch(() => {});
+      }
+    } catch (athleteNotifyErr) {
+      console.error('[ERROR] approveBusiness athlete notify:', athleteNotifyErr.message);
+    }
+
     res.json(business);
   } catch (error) {
     console.error('[ERROR] approveBusiness:', error);
@@ -852,6 +996,17 @@ const sendTestNotification = async (req, res) => {
   } catch (error) {
     console.error('[ERROR] sendTestNotification:', error);
     res.status(500).json({ error: error.message || 'Internal Server Error' });
+  }
+};
+
+const runWeeklyDigest = async (req, res) => {
+  try {
+    const { sendWeeklyDigest } = require('../services/weeklyDigest.service');
+    const result = await sendWeeklyDigest();
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('[ERROR] runWeeklyDigest:', error);
+    res.status(500).json({ error: 'Error al ejecutar el digest semanal' });
   }
 };
 
@@ -1053,6 +1208,134 @@ const deleteAchievement = async (req, res) => {
   }
 };
 
+const listAdminStories = async (req, res) => {
+  try {
+    const includeExpired = req.query.includeExpired === 'true' || req.query.includeExpired === '1';
+    const now = new Date();
+    const stories = await prisma.story.findMany({
+      where: includeExpired ? {} : { expiresAt: { gt: now } },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(parseInt(req.query.limit, 10) || 100, 200),
+      include: {
+        user: {
+          select: { id: true, username: true, email: true, firstName: true, avatarUrl: true },
+        },
+        _count: { select: { views: true } },
+      },
+    });
+    res.json(stories);
+  } catch (error) {
+    console.error('[ERROR] listAdminStories:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const deleteAdminStory = async (req, res) => {
+  try {
+    const existing = await prisma.story.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Historia no encontrada' });
+    await prisma.storyView.deleteMany({ where: { storyId: existing.id } });
+    await prisma.story.delete({ where: { id: existing.id } });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[ERROR] deleteAdminStory:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+/**
+ * Genera settlements mensuales para negocios APPROVED según canjes USED del período.
+ * Body opcional: { year, month } (mes 1-12). Por defecto: mes calendario anterior.
+ */
+const generateSettlements = async (req, res) => {
+  try {
+    const now = new Date();
+    let year = parseInt(req.body?.year, 10);
+    let month = parseInt(req.body?.month, 10); // 1-12
+    if (!year || !month) {
+      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      year = prev.getFullYear();
+      month = prev.getMonth() + 1;
+    }
+
+    const periodStart = new Date(year, month - 1, 1);
+    const periodEnd = new Date(year, month, 0, 23, 59, 59, 999);
+
+    const businesses = await prisma.business.findMany({
+      where: { status: 'APPROVED', isActive: true },
+      select: { id: true, name: true },
+    });
+
+    const created = [];
+    for (const biz of businesses) {
+      const existing = await prisma.settlement.findFirst({
+        where: {
+          businessId: biz.id,
+          periodStart,
+          periodEnd,
+        },
+      });
+      if (existing) continue;
+
+      const used = await prisma.redemption.aggregate({
+        where: {
+          businessId: biz.id,
+          status: 'USED',
+          usedAt: { gte: periodStart, lte: periodEnd },
+        },
+        _sum: { pointsSpent: true },
+        _count: true,
+      });
+
+      // Monto simple: pts canjeados usados * factor (0.01 = $1 cada 100 pts)
+      const points = used._sum.pointsSpent || 0;
+      const amount = Math.round(points * 0.01 * 100) / 100;
+
+      const settlement = await prisma.settlement.create({
+        data: {
+          businessId: biz.id,
+          periodStart,
+          periodEnd,
+          amount,
+          status: 'PENDING',
+        },
+      });
+      created.push({ ...settlement, businessName: biz.name, redemptionsCount: used._count });
+    }
+
+    res.status(201).json({
+      periodStart,
+      periodEnd,
+      created,
+      count: created.length,
+    });
+  } catch (error) {
+    console.error('[ERROR] generateSettlements:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const listAdminSettlements = async (req, res) => {
+  try {
+    const where = {};
+    if (req.query.businessId) where.businessId = req.query.businessId;
+    if (req.query.status) where.status = req.query.status;
+
+    const settlements = await prisma.settlement.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        business: { select: { id: true, name: true } },
+      },
+    });
+    res.json(settlements);
+  } catch (error) {
+    console.error('[ERROR] listAdminSettlements:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
 module.exports = {
   getStats,
   listUsers,
@@ -1094,6 +1377,7 @@ module.exports = {
   rejectBusiness,
   suspendBusiness,
   sendTestNotification,
+  runWeeklyDigest,
   listAdminRewards,
   updateAdminRewardStatus,
   listMissions,
@@ -1104,4 +1388,8 @@ module.exports = {
   createAchievement,
   editAchievement,
   deleteAchievement,
+  listAdminStories,
+  deleteAdminStory,
+  generateSettlements,
+  listAdminSettlements,
 };

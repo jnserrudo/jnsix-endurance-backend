@@ -7,24 +7,61 @@ const getCompetitions = async (req, res) => {
     const userId = req.user.id;
     console.log('[INFO] [GET COMPETITIONS] Usuario ID:', userId);
 
-    const competitions = await prisma.competitionGoal.findMany({
-      where: { userId },
-      orderBy: { targetDate: 'asc' },
-      include: {
-        simulations: {
-          select: {
-            id: true,
-            name: true,
-            distanceKm: true,
-            movingTime: true,
-            elevationM: true,
-            startDate: true
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const [competitions, monthStats] = await Promise.all([
+      prisma.competitionGoal.findMany({
+        where: { userId },
+        orderBy: { targetDate: 'asc' },
+        include: {
+          simulations: {
+            select: {
+              id: true,
+              name: true,
+              distanceKm: true,
+              movingTime: true,
+              elevationM: true,
+              startDate: true
+            }
+          },
+          userPlans: {
+            where: { isActive: true },
+            take: 1,
+            include: {
+              plan: {
+                select: {
+                  sessions: { select: { status: true } }
+                }
+              }
+            }
           }
         }
-      }
-    });
+      }),
+      prisma.activity.aggregate({
+        where: { userId, startDate: { gte: monthStart } },
+        _sum: { distanceKm: true }
+      })
+    ]);
 
-    res.json(competitions);
+    const kmThisMonth = monthStats._sum.distanceKm || 0;
+    res.json(competitions.map((competition) => {
+      const sessions = competition.userPlans[0]?.plan?.sessions || [];
+      const doneSessions = sessions.filter((session) => session.status === 'DONE').length;
+      const totalSessions = sessions.length;
+      const { userPlans, ...data } = competition;
+      return {
+        ...data,
+        trainingProgress: {
+          doneSessions,
+          totalSessions,
+          percent: totalSessions ? Math.round((doneSessions / totalSessions) * 100) : 0,
+          kmThisMonth,
+          hasActivePlan: totalSessions > 0,
+        },
+      };
+    }));
   } catch (error) {
     console.error('[ERROR] [GET COMPETITIONS] Error:', error.message);
     console.error('[ERROR]', error);

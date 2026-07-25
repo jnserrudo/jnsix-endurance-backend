@@ -60,13 +60,13 @@ const startCronJobs = () => {
     }
   });
 
-  // Lunes 09:00 — resumen semanal in-app
+  // Lunes 09:00 — digest semanal (km, racha, tip amigos) via SYSTEM notify/email
   cron.schedule('0 9 * * 1', async () => {
-    console.log('Running weekly recap notifications...');
+    console.log('Running weekly digest...');
     try {
       await sendWeeklyRecapNotifications();
     } catch (error) {
-      console.error('Error in weekly recap job:', error);
+      console.error('Error in weekly digest job:', error);
     }
   });
 

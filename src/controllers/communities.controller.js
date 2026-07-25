@@ -480,6 +480,97 @@ const respondCommunityInvite = async (req, res) => {
   }
 };
 
+/**
+ * Progreso del reto colectivo de la comunidad: suma de distancia (km) del mes
+ * en curso de todos los miembros, más un top de contribuyentes.
+ */
+const getChallengeStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const community = await prisma.community.findFirst({
+      where: { id, isActive: true, deletedAt: null },
+      select: { id: true, name: true }
+    });
+    if (!community) return res.status(404).json({ error: 'Comunidad no encontrada' });
+
+    const members = await prisma.communityMember.findMany({
+      where: { communityId: id },
+      select: { userId: true }
+    });
+    const memberIds = members.map((m) => m.userId);
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    if (memberIds.length === 0) {
+      return res.json({
+        communityId: id,
+        name: community.name,
+        monthStart,
+        memberCount: 0,
+        totalDistanceKm: 0,
+        totalActivities: 0,
+        totalElevationM: 0,
+        totalMovingTime: 0,
+        topContributors: []
+      });
+    }
+
+    const grouped = await prisma.activity.groupBy({
+      by: ['userId'],
+      where: {
+        userId: { in: memberIds },
+        startDate: { gte: monthStart }
+      },
+      _sum: { distanceKm: true, elevationM: true, movingTime: true },
+      _count: { _all: true }
+    });
+
+    let totalDistanceKm = 0;
+    let totalElevationM = 0;
+    let totalMovingTime = 0;
+    let totalActivities = 0;
+    for (const g of grouped) {
+      totalDistanceKm += g._sum.distanceKm || 0;
+      totalElevationM += g._sum.elevationM || 0;
+      totalMovingTime += g._sum.movingTime || 0;
+      totalActivities += g._count._all || 0;
+    }
+
+    const topSorted = [...grouped]
+      .sort((a, b) => (b._sum.distanceKm || 0) - (a._sum.distanceKm || 0))
+      .slice(0, 5);
+    const topUserIds = topSorted.map((g) => g.userId).filter(Boolean);
+    const users = await prisma.user.findMany({
+      where: { id: { in: topUserIds } },
+      select: { id: true, username: true, firstName: true, avatarUrl: true }
+    });
+    const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+
+    const topContributors = topSorted.map((g) => ({
+      user: userMap[g.userId] || { id: g.userId },
+      distanceKm: g._sum.distanceKm || 0,
+      activities: g._count._all || 0
+    }));
+
+    res.json({
+      communityId: id,
+      name: community.name,
+      monthStart,
+      memberCount: memberIds.length,
+      totalDistanceKm,
+      totalActivities,
+      totalElevationM,
+      totalMovingTime,
+      topContributors
+    });
+  } catch (error) {
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 const leaveCommunity = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -511,5 +602,6 @@ module.exports = {
   listCommunityInvitations,
   listMyCommunityInvitations,
   respondCommunityInvite,
-  leaveCommunity
+  leaveCommunity,
+  getChallengeStats
 };

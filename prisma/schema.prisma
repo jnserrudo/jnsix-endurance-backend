@@ -25,6 +25,14 @@ model User {
   marketingEnabled   Boolean   @default(true) @map("marketing_enabled")
   deletedAt          DateTime? @map("deleted_at")
   emailVerified      Boolean   @default(false) @map("email_verified")
+  onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
+  onboardingData     Json?     @map("onboarding_data")
+  coachMemory        Json?     @map("coach_memory")
+  totpSecret         String?   @map("totp_secret")
+  totpEnabled        Boolean   @default(false) @map("totp_enabled")
+  hrZones            Json?     @map("hr_zones")
+  paceZones          Json?     @map("pace_zones")
+  powerZones         Json?     @map("power_zones")
 
   // Perfil de usuario
   firstName         String?    @map("first_name")
@@ -81,6 +89,7 @@ model User {
   subscriptions         Subscription[]
   discountRedemptions   DiscountRedemption[]
   emailVerifications    EmailVerification[]
+  passwordResets        PasswordReset[]
   transactions          Transaction[]
   workoutSessions       WorkoutSession[]
 
@@ -96,6 +105,19 @@ model User {
   stories        Story[]
   storyViews     StoryView[]
   segmentEfforts SegmentLeaderboard[]
+  reportsFiled   ContentReport[]         @relation("ReportReporter")
+  blocksInitiated UserBlock[]            @relation("Blocker")
+  blocksReceived  UserBlock[]            @relation("Blocked")
+  clubEventsCreated ClubEvent[]          @relation("ClubEventCreator")
+  clubEventRsvps    ClubEventRsvp[]
+  badges            UserBadge[]
+  duelsAsChallenger Duel[]               @relation("DuelChallenger")
+  duelsAsOpponent   Duel[]               @relation("DuelOpponent")
+  aiConversations   AIConversation[]
+  savedSessions     SavedSession[]
+  liveChallengeParts LiveChallengeParticipant[]
+  syncJobs          SyncJob[]
+  checkIns          BusinessCheckIn[]
 
   business       Business?
   redemptions    Redemption[]
@@ -358,6 +380,7 @@ model Group {
   visibility   Visibility         @default(PUBLIC)
   isActive     Boolean            @default(true) @map("is_active")
   deletedAt    DateTime?          @map("deleted_at")
+  weeklyPlan   Json?              @map("weekly_plan")
   createdAt    DateTime           @default(now()) @map("created_at")
   updatedAt    DateTime           @updatedAt @map("updated_at")
   owner        User               @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
@@ -572,20 +595,24 @@ model ActivityPhoto {
 }
 
 model Post {
-  id         String    @id @default(uuid())
-  userId     String    @map("user_id")
-  activityId String?   @map("activity_id")
-  content    String    @db.Text
-  imageUrl   String?   @map("image_url")
-  isActive   Boolean   @default(true) @map("is_active")
-  deletedAt  DateTime? @map("deleted_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  activity   Activity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
-  comments   Comment[]
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  activityId  String?   @map("activity_id")
+  groupId     String?   @map("group_id")
+  communityId String?   @map("community_id")
+  content     String    @db.Text
+  imageUrl    String?   @map("image_url")
+  isActive    Boolean   @default(true) @map("is_active")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity    Activity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  comments    Comment[]
 
   @@index([userId])
+  @@index([groupId])
+  @@index([communityId])
   @@map("posts")
 }
 
@@ -692,13 +719,16 @@ model ChatRoomMember {
 }
 
 model ChatMessage {
-  id        String   @id @default(uuid())
-  roomId    String   @map("room_id")
-  userId    String   @map("user_id")
-  content   String   @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
-  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String   @id @default(uuid())
+  roomId      String   @map("room_id")
+  userId      String   @map("user_id")
+  content     String   @db.Text
+  mediaUrl    String?  @map("media_url")
+  mediaType   String?  @map("media_type") // IMAGE, AUDIO, ACTIVITY
+  activityId  String?  @map("activity_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  room        ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([roomId])
   @@index([createdAt])
@@ -874,9 +904,25 @@ model Business {
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   rewards         Reward[]
   redemptions     Redemption[]
+  settlements     Settlement[]
 
   @@index([status, isActive])
   @@map("businesses")
+}
+
+model Settlement {
+  id          String   @id @default(uuid())
+  businessId  String   @map("business_id")
+  periodStart DateTime @map("period_start")
+  periodEnd   DateTime @map("period_end")
+  amount      Float
+  status      String   @default("PENDING") // PENDING, PAID, CANCELLED
+  createdAt   DateTime @default(now()) @map("created_at")
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([status])
+  @@map("settlements")
 }
 
 model Reward {
@@ -1054,6 +1100,7 @@ enum ChatRoomType {
 
 enum NotificationType {
   FRIEND_REQUEST
+  FRIEND_ACCEPTED
   RANK_UP
   CHALLENGE_COMPLETE
   COMMENT
@@ -1076,6 +1123,10 @@ enum NotificationType {
   PAYMENT_REVIEW
   PAYMENT_APPROVED
   PAYMENT_REJECTED
+  TRAINING_LOAD
+  STREAK_AT_RISK
+  MENTION
+  DUEL_UPDATE
 }
 
 enum InvitationStatus {
@@ -1302,14 +1353,19 @@ model TrainingPlan {
 }
 
 model PlanSession {
-  id             String  @id @default(uuid())
-  trainingPlanId String  @map("training_plan_id")
-  week           Int
-  day            Int
-  name           String
-  description    String? @db.Text
-  targetMetric   String? // Ej: DISTANCE, TIME
-  targetValue    Float?
+  id                  String    @id @default(uuid())
+  trainingPlanId      String    @map("training_plan_id")
+  week                Int
+  day                 Int
+  name                String
+  description         String?   @db.Text
+  rationale           String?   @db.Text
+  targetMetric        String? // Ej: DISTANCE, TIME
+  targetValue         Float?
+  status              String    @default("PENDING") // PENDING, DONE, SKIPPED, MOVED
+  completedActivityId String?   @map("completed_activity_id")
+  rescheduledTo       DateTime? @map("rescheduled_to")
+  completedAt         DateTime? @map("completed_at")
 
   plan TrainingPlan @relation(fields: [trainingPlanId], references: [id], onDelete: Cascade)
 
@@ -1422,12 +1478,228 @@ model SegmentLeaderboard {
 }
 
 model LiveChallenge {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  scheduledAt DateTime
-  status      String // SCHEDULED, IN_PROGRESS, COMPLETED
-  createdAt   DateTime @default(now())
+  id             String   @id @default(uuid())
+  name           String
+  description    String?
+  type           String   @default("DISTANCE") // DISTANCE, TIME, ELEVATION
+  targetDistance Float?   @map("target_distance")
+  targetValue    Float?   @map("target_value")
+  scheduledAt    DateTime @map("scheduled_at")
+  endDate        DateTime? @map("end_date")
+  status         String   @default("SCHEDULED") // SCHEDULED, IN_PROGRESS, COMPLETED
+  groupId        String?  @map("group_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  participants LiveChallengeParticipant[]
 
   @@map("live_challenges")
+}
+
+model LiveChallengeParticipant {
+  id              String   @id @default(uuid())
+  liveChallengeId String   @map("live_challenge_id")
+  userId          String   @map("user_id")
+  progress        Float    @default(0)
+  joinedAt        DateTime @default(now()) @map("joined_at")
+
+  challenge LiveChallenge @relation(fields: [liveChallengeId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([liveChallengeId, userId])
+  @@map("live_challenge_participants")
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_resets")
+}
+
+model ContentReport {
+  id          String   @id @default(uuid())
+  reporterId  String   @map("reporter_id")
+  targetType  String   @map("target_type") // POST, COMMENT, STORY, USER, GROUP
+  targetId    String   @map("target_id")
+  reason      String
+  status      String   @default("PENDING") // PENDING, REVIEWED, DISMISSED, ACTIONED
+  createdAt   DateTime @default(now()) @map("created_at")
+  reviewedAt  DateTime? @map("reviewed_at")
+
+  reporter User @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("content_reports")
+}
+
+model UserBlock {
+  id        String   @id @default(uuid())
+  blockerId String   @map("blocker_id")
+  blockedId String   @map("blocked_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@map("user_blocks")
+}
+
+model ClubEvent {
+  id          String   @id @default(uuid())
+  title       String
+  description String?  @db.Text
+  location    String?
+  startsAt    DateTime @map("starts_at")
+  endsAt      DateTime? @map("ends_at")
+  groupId     String?  @map("group_id")
+  communityId String?  @map("community_id")
+  creatorId   String   @map("creator_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  creator User            @relation("ClubEventCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  rsvps   ClubEventRsvp[]
+
+  @@index([groupId])
+  @@index([communityId])
+  @@map("club_events")
+}
+
+model ClubEventRsvp {
+  id      String   @id @default(uuid())
+  eventId String   @map("event_id")
+  userId  String   @map("user_id")
+  status  String   @default("GOING") // GOING, MAYBE, DECLINED
+  createdAt DateTime @default(now()) @map("created_at")
+
+  event ClubEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@map("club_event_rsvps")
+}
+
+model Season {
+  id        String   @id @default(uuid())
+  name      String
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+  isActive  Boolean  @default(false) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("seasons")
+}
+
+model Badge {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  iconUrl     String?  @map("icon_url")
+  criteria    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  users UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id       String   @id @default(uuid())
+  userId   String   @map("user_id")
+  badgeId  String   @map("badge_id")
+  earnedAt DateTime @default(now()) @map("earned_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+model Duel {
+  id            String   @id @default(uuid())
+  challengerId  String   @map("challenger_id")
+  opponentId    String   @map("opponent_id")
+  metric        String   @default("DISTANCE") // DISTANCE, POINTS
+  weekStart     DateTime @map("week_start")
+  weekEnd       DateTime @map("week_end")
+  status        String   @default("PENDING") // PENDING, ACTIVE, COMPLETED, DECLINED
+  challengerScore Float  @default(0) @map("challenger_score")
+  opponentScore   Float  @default(0) @map("opponent_score")
+  winnerId      String?  @map("winner_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  challenger User @relation("DuelChallenger", fields: [challengerId], references: [id], onDelete: Cascade)
+  opponent   User @relation("DuelOpponent", fields: [opponentId], references: [id], onDelete: Cascade)
+
+  @@index([challengerId])
+  @@index([opponentId])
+  @@map("duels")
+}
+
+model AIConversation {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  mode      String   @default("coach") // coach, chat
+  title     String?
+  messages  Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("ai_conversations")
+}
+
+model SavedSession {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  name         String
+  description  String?  @db.Text
+  targetMetric String?  @map("target_metric")
+  targetValue  Float?   @map("target_value")
+  sportType    String?  @map("sport_type")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("saved_sessions")
+}
+
+model SyncJob {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String // STRAVA, HEALTH
+  status    String   @default("PENDING") // PENDING, RUNNING, DONE, FAILED
+  payload   Json?
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@map("sync_jobs")
+}
+
+model BusinessCheckIn {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  businessId String   @map("business_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([businessId])
+  @@map("business_check_ins")
 }

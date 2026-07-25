@@ -9,7 +9,12 @@ const createStory = async (req, res) => {
     if (req.file) {
       const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
       mediaUrl = `${backendUrl}/uploads/${req.file.filename}`;
-      mediaType = mediaType || 'IMAGE';
+      const mime = req.file.mimetype || '';
+      const inferred = mime.startsWith('video/') ? 'VIDEO' : 'IMAGE';
+      mediaType = (mediaType || inferred).toUpperCase();
+      if (mediaType !== 'IMAGE' && mediaType !== 'VIDEO') {
+        return res.status(400).json({ error: 'mediaType debe ser IMAGE o VIDEO' });
+      }
     }
 
     if (!mediaUrl || !mediaType) {

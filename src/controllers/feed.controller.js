@@ -1,14 +1,23 @@
 const prisma = require('../lib/prisma');
 const { notify } = require('../services/notifications.service');
+const { getBlockedUserIds, notifyMentions } = require('../lib/social');
 
 const PAGE_SIZE = 20;
+
+const authorLabelFromReq = (req) =>
+  req.user?.username || req.user?.email?.split('@')[0] || 'Un atleta';
 
 const getFeed = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { page = 1, q } = req.query;
+    const { page = 1, q, groupId, communityId, tag } = req.query;
     const skip = (parseInt(page) - 1) * PAGE_SIZE;
     const searchTerm = q ? q.trim() : '';
+    const tagTerm = tag ? String(tag).replace(/^#/, '').trim() : '';
+    const scoped = Boolean(groupId || communityId);
+    // Cuando se filtra por hashtag sólo tienen sentido los posts (las
+    // actividades no llevan contenido con etiquetas).
+    const onlyPosts = scoped || Boolean(tagTerm);
 
     // Obtener IDs de amigos
     const friendships = await prisma.friendship.findMany({
@@ -19,50 +28,64 @@ const getFeed = async (req, res) => {
     });
     const friendIds = friendships.map((f) => (f.userId === userId ? f.friendId : f.userId));
 
+    // Usuarios bloqueados (bidireccional): ocultar su contenido
+    const blockedIds = await getBlockedUserIds(userId);
+
     // Filtro de búsqueda por texto (insensible a mayúsculas en Prisma: mode: 'insensitive')
     const searchFilter = searchTerm
       ? { OR: [{ name: { contains: searchTerm, mode: 'insensitive' } }, { description: { contains: searchTerm, mode: 'insensitive' } }] }
       : {};
-    const postSearchFilter = searchTerm
-      ? { content: { contains: searchTerm, mode: 'insensitive' } }
-      : {};
 
-    // IDs de grupos/comunidades a los que pertenece el usuario
-    const groupIds = (
-      await prisma.groupMember.findMany({ where: { userId }, select: { groupId: true } })
-    ).map((g) => g.groupId);
-    const communityIds = (
-      await prisma.communityMember.findMany({ where: { userId }, select: { communityId: true } })
-    ).map((c) => c.communityId);
+    // Filtros de contenido de posts: búsqueda por texto y/o por hashtag.
+    // Se combinan con AND para poder aplicar ambos a la vez.
+    const postContentAnd = [];
+    if (searchTerm) postContentAnd.push({ content: { contains: searchTerm, mode: 'insensitive' } });
+    if (tagTerm) postContentAnd.push({ content: { contains: `#${tagTerm}`, mode: 'insensitive' } });
+
+    // Cuando el feed está scopeado a un grupo/comunidad, sólo mostramos posts
+    // de ese contexto (las actividades no tienen scope de grupo/comunidad).
+    const postWhere = {
+      isActive: true,
+      deletedAt: null,
+      ...(postContentAnd.length ? { AND: postContentAnd } : {}),
+      ...(blockedIds.length ? { userId: { notIn: blockedIds } } : {})
+    };
+
+    if (scoped) {
+      if (groupId) postWhere.groupId = String(groupId);
+      if (communityId) postWhere.communityId = String(communityId);
+    } else {
+      // Feed principal: sólo posts "sueltos" (no publicados dentro de un grupo/comunidad)
+      postWhere.groupId = null;
+      postWhere.communityId = null;
+      postWhere.OR = [
+        { userId },
+        { userId: { in: friendIds } },
+        { activity: { visibility: { in: ['PUBLIC', 'FRIENDS'] } } }
+      ];
+    }
 
     // Feed: actividades publicas/de amigos + posts propios/de amigos
-    const activities = await prisma.activity.findMany({
-      where: {
-        userId: { in: [...friendIds, userId] },
-        visibility: { in: ['PUBLIC', 'FRIENDS'] },
-        ...searchFilter
-      },
-      orderBy: { startDate: 'desc' },
-      take: skip + PAGE_SIZE,
-      include: {
-        user: {
-          select: { id: true, email: true, username: true, firstName: true, avatarUrl: true },
-        },
-        _count: { select: { comments: true } }
-      }
-    });
+    const activities = onlyPosts
+      ? []
+      : await prisma.activity.findMany({
+          where: {
+            userId: { in: [...friendIds, userId].filter((id) => !blockedIds.includes(id)) },
+            visibility: { in: ['PUBLIC', 'FRIENDS'] },
+            ...searchFilter
+          },
+          orderBy: { startDate: 'desc' },
+          take: skip + PAGE_SIZE,
+          include: {
+            user: {
+              select: { id: true, email: true, username: true, firstName: true, avatarUrl: true },
+            },
+            _count: { select: { comments: true } }
+          }
+        });
 
     const posts = await prisma.post.findMany({
-      where: {
-        isActive: true,
-        deletedAt: null,
-        ...postSearchFilter,
-        OR: [
-          { userId },
-          { userId: { in: friendIds } },
-          { activity: { visibility: { in: ['PUBLIC', 'FRIENDS'] } } }
-        ]
-      },
+      where: postWhere,
       orderBy: { createdAt: 'desc' },
       take: skip + PAGE_SIZE,
       include: {
@@ -144,10 +167,28 @@ const getFeed = async (req, res) => {
 const createPost = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { content, activityId } = req.body;
+    const { content, activityId, groupId, communityId } = req.body;
 
     if (!content) {
       return res.status(400).json({ error: 'content is required' });
+    }
+
+    // Si se publica en un grupo/comunidad, validar que el usuario sea miembro
+    if (groupId) {
+      const membership = await prisma.groupMember.findUnique({
+        where: { groupId_userId: { groupId, userId } }
+      });
+      if (!membership) {
+        return res.status(403).json({ error: 'Debés ser miembro del grupo para publicar' });
+      }
+    }
+    if (communityId) {
+      const membership = await prisma.communityMember.findUnique({
+        where: { communityId_userId: { communityId, userId } }
+      });
+      if (!membership) {
+        return res.status(403).json({ error: 'Debés ser miembro de la comunidad para publicar' });
+      }
     }
 
     let imageUrl = null;
@@ -157,18 +198,55 @@ const createPost = async (req, res) => {
     }
 
     const post = await prisma.post.create({
-      data: { userId, content, activityId: activityId || null, imageUrl },
+      data: {
+        userId,
+        content,
+        activityId: activityId || null,
+        groupId: groupId || null,
+        communityId: communityId || null,
+        imageUrl
+      },
       include: {
-        user: { select: { id: true, email: true } },
+        user: { select: { id: true, email: true, username: true, firstName: true, avatarUrl: true } },
         activity: { select: { id: true, name: true } }
       }
     });
 
-    res.status(201).json(post);
+    // Notificar a los usuarios mencionados con @username
+    await notifyMentions({
+      authorId: userId,
+      authorLabel: authorLabelFromReq(req),
+      content,
+      targetType: 'POST',
+      targetId: post.id
+    });
+
+    let combo = null;
+    try {
+      const gamificationService = require('../services/gamification.service');
+      await gamificationService.awardBadgeByCode(userId, 'first_post');
+      combo = await gamificationService.checkDailyComboBonus(userId);
+    } catch (err) {
+      console.error('[Gamification] post combo/badge:', err.message);
+    }
+
+    res.status(201).json({ ...post, combo });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
+};
+
+// Feed de un grupo específico (sólo posts del grupo)
+const getGroupFeed = async (req, res) => {
+  req.query.groupId = req.params.id;
+  return getFeed(req, res);
+};
+
+// Feed de una comunidad específica (sólo posts de la comunidad)
+const getCommunityFeed = async (req, res) => {
+  req.query.communityId = req.params.id;
+  return getFeed(req, res);
 };
 
 const listComments = async (req, res) => {
@@ -233,6 +311,15 @@ const createComment = async (req, res) => {
         payload: { targetType, targetId, commentId: comment.id }
       });
     }
+
+    // Notificar a los usuarios mencionados con @username en el comentario
+    await notifyMentions({
+      authorId: userId,
+      authorLabel: authorLabelFromReq(req),
+      content,
+      targetType: 'COMMENT',
+      targetId: comment.id
+    });
 
     res.status(201).json(comment);
   } catch (error) {
@@ -301,7 +388,15 @@ const toggleReaction = async (req, res) => {
       });
     }
 
-    res.status(201).json(reaction);
+    let combo = null;
+    try {
+      const gamificationService = require('../services/gamification.service');
+      combo = await gamificationService.checkDailyComboBonus(userId);
+    } catch (err) {
+      console.error('[Gamification] reaction combo:', err.message);
+    }
+
+    res.status(201).json({ ...reaction, combo });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -412,6 +507,8 @@ const deleteComment = async (req, res) => {
 
 module.exports = {
   getFeed,
+  getGroupFeed,
+  getCommunityFeed,
   createPost,
   listComments,
   createComment,

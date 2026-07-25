@@ -1,4 +1,14 @@
 const prisma = require('../lib/prisma');
+const { emitToRoom } = require('../services/socket.service');
+
+const USER_PUBLIC_SELECT = {
+  id: true,
+  email: true,
+  username: true,
+  avatarUrl: true
+};
+
+const emailPrefix = (email) => (email ? email.split('@')[0] : 'Usuario');
 
 const listRooms = async (req, res) => {
   try {
@@ -10,44 +20,109 @@ const listRooms = async (req, res) => {
         room: {
           include: {
             members: {
-              include: { user: { select: { id: true, email: true } } }
+              include: { user: { select: USER_PUBLIC_SELECT } }
             },
             messages: {
               take: 1,
               orderBy: { createdAt: 'desc' },
-              include: { user: { select: { id: true, email: true } } }
+              include: { user: { select: USER_PUBLIC_SELECT } }
             }
           }
         }
       }
     });
 
-    const rooms = memberships.map((m) => {
+    const groupIds = [
+      ...new Set(
+        memberships
+          .filter((m) => m.room.type === 'GROUP' && m.room.referenceId)
+          .map((m) => m.room.referenceId)
+      )
+    ];
+    const communityIds = [
+      ...new Set(
+        memberships
+          .filter((m) => m.room.type === 'COMMUNITY' && m.room.referenceId)
+          .map((m) => m.room.referenceId)
+      )
+    ];
+
+    const [groups, communities, unreadCounts] = await Promise.all([
+      groupIds.length
+        ? prisma.group.findMany({
+            where: { id: { in: groupIds } },
+            select: { id: true, name: true, avatarUrl: true }
+          })
+        : [],
+      communityIds.length
+        ? prisma.community.findMany({
+            where: { id: { in: communityIds } },
+            select: { id: true, name: true, avatarUrl: true }
+          })
+        : [],
+      Promise.all(
+        memberships.map((m) =>
+          prisma.chatMessage.count({
+            where: {
+              roomId: m.room.id,
+              userId: { not: userId },
+              ...(m.lastReadAt ? { createdAt: { gt: m.lastReadAt } } : {})
+            }
+          })
+        )
+      )
+    ]);
+
+    const groupById = Object.fromEntries(groups.map((g) => [g.id, g]));
+    const communityById = Object.fromEntries(communities.map((c) => [c.id, c]));
+
+    const rooms = memberships.map((m, index) => {
       const lastMessage = m.room.messages[0] || null;
-      const unreadCount = lastMessage && m.lastReadAt
-        ? (new Date(lastMessage.createdAt) > new Date(m.lastReadAt) ? 1 : 0)
-        : (lastMessage ? 1 : 0);
+      const members = m.room.members.map((mem) => ({
+        userId: mem.userId,
+        email: mem.user.email,
+        username: mem.user.username,
+        avatarUrl: mem.user.avatarUrl,
+        joinedAt: mem.joinedAt
+      }));
+
+      let name = 'Chat';
+      let avatarUrl = null;
+
+      if (m.room.type === 'DIRECT') {
+        const other = members.find((mem) => mem.userId !== userId);
+        name = other?.username || emailPrefix(other?.email) || 'Chat';
+        avatarUrl = other?.avatarUrl || null;
+      } else if (m.room.type === 'GROUP' && m.room.referenceId) {
+        const group = groupById[m.room.referenceId];
+        name = group?.name || 'Chat';
+        avatarUrl = group?.avatarUrl || null;
+      } else if (m.room.type === 'COMMUNITY' && m.room.referenceId) {
+        const community = communityById[m.room.referenceId];
+        name = community?.name || 'Chat';
+        avatarUrl = community?.avatarUrl || null;
+      }
+
+      const updatedAt = lastMessage?.createdAt || m.room.createdAt;
 
       return {
         id: m.room.id,
         type: m.room.type,
         referenceId: m.room.referenceId,
+        name,
+        avatarUrl,
         createdAt: m.room.createdAt,
-        members: m.room.members.map((mem) => ({
-          userId: mem.userId,
-          email: mem.user.email,
-          joinedAt: mem.joinedAt
-        })),
+        updatedAt,
+        members,
         lastMessage,
-        unreadCount,
+        unreadCount: unreadCounts[index] || 0,
         lastReadAt: m.lastReadAt
       };
     });
 
-    // Ordenar por último mensaje (más reciente primero)
     rooms.sort((a, b) => {
-      const dateA = a.lastMessage?.createdAt || a.createdAt;
-      const dateB = b.lastMessage?.createdAt || b.createdAt;
+      const dateA = a.updatedAt || a.createdAt;
+      const dateB = b.updatedAt || b.createdAt;
       return new Date(dateB) - new Date(dateA);
     });
 
@@ -71,7 +146,6 @@ const getOrCreateDirectRoom = async (req, res) => {
       return res.status(400).json({ error: 'Cannot create a chat with yourself' });
     }
 
-    // Buscar room DIRECT existente entre ambos usuarios
     const existingMemberships = await prisma.chatRoomMember.findMany({
       where: { userId },
       include: {
@@ -84,29 +158,35 @@ const getOrCreateDirectRoom = async (req, res) => {
     });
 
     const existingRoom = existingMemberships.find((m) => {
-      return m.room.type === 'DIRECT'
-        && m.room.members.length === 2
-        && m.room.members.some((mem) => mem.userId === targetUserId);
+      return (
+        m.room.type === 'DIRECT' &&
+        m.room.members.length === 2 &&
+        m.room.members.some((mem) => mem.userId === targetUserId)
+      );
     });
 
     if (existingRoom) {
-      return res.json(existingRoom.room);
+      const room = await prisma.chatRoom.findUnique({
+        where: { id: existingRoom.room.id },
+        include: {
+          members: {
+            include: { user: { select: USER_PUBLIC_SELECT } }
+          }
+        }
+      });
+      return res.json(room);
     }
 
-    // Crear nueva room
     const room = await prisma.chatRoom.create({
       data: {
         type: 'DIRECT',
         members: {
-          create: [
-            { userId },
-            { userId: targetUserId }
-          ]
+          create: [{ userId }, { userId: targetUserId }]
         }
       },
       include: {
         members: {
-          include: { user: { select: { id: true, email: true } } }
+          include: { user: { select: USER_PUBLIC_SELECT } }
         }
       }
     });
@@ -127,7 +207,6 @@ const getOrCreateGroupRoom = async (req, res) => {
       return res.status(400).json({ error: 'groupId is required' });
     }
 
-    // Verificar membresía en el grupo
     const groupMember = await prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId, userId } }
     });
@@ -135,18 +214,16 @@ const getOrCreateGroupRoom = async (req, res) => {
       return res.status(403).json({ error: 'No eres miembro de este grupo' });
     }
 
-    // Buscar room existente
     const existingRoom = await prisma.chatRoom.findFirst({
       where: { type: 'GROUP', referenceId: groupId },
       include: {
         members: {
-          include: { user: { select: { id: true, email: true } } }
+          include: { user: { select: USER_PUBLIC_SELECT } }
         }
       }
     });
 
     if (existingRoom) {
-      // Asegurarse de que el usuario es miembro de la room
       const isMember = existingRoom.members.some((m) => m.userId === userId);
       if (!isMember) {
         await prisma.chatRoomMember.create({
@@ -156,7 +233,6 @@ const getOrCreateGroupRoom = async (req, res) => {
       return res.json(existingRoom);
     }
 
-    // Crear room y agregar todos los miembros del grupo
     const groupMembers = await prisma.groupMember.findMany({
       where: { groupId },
       select: { userId: true }
@@ -172,7 +248,7 @@ const getOrCreateGroupRoom = async (req, res) => {
       },
       include: {
         members: {
-          include: { user: { select: { id: true, email: true } } }
+          include: { user: { select: USER_PUBLIC_SELECT } }
         }
       }
     });
@@ -193,7 +269,6 @@ const getOrCreateCommunityRoom = async (req, res) => {
       return res.status(400).json({ error: 'communityId is required' });
     }
 
-    // Verificar membresía en la comunidad
     const communityMember = await prisma.communityMember.findUnique({
       where: { communityId_userId: { communityId, userId } }
     });
@@ -201,12 +276,11 @@ const getOrCreateCommunityRoom = async (req, res) => {
       return res.status(403).json({ error: 'No eres miembro de esta comunidad' });
     }
 
-    // Buscar room existente
     const existingRoom = await prisma.chatRoom.findFirst({
       where: { type: 'COMMUNITY', referenceId: communityId },
       include: {
         members: {
-          include: { user: { select: { id: true, email: true } } }
+          include: { user: { select: USER_PUBLIC_SELECT } }
         }
       }
     });
@@ -221,7 +295,6 @@ const getOrCreateCommunityRoom = async (req, res) => {
       return res.json(existingRoom);
     }
 
-    // Crear room y agregar todos los miembros de la comunidad
     const communityMembers = await prisma.communityMember.findMany({
       where: { communityId },
       select: { userId: true }
@@ -237,7 +310,7 @@ const getOrCreateCommunityRoom = async (req, res) => {
       },
       include: {
         members: {
-          include: { user: { select: { id: true, email: true } } }
+          include: { user: { select: USER_PUBLIC_SELECT } }
         }
       }
     });
@@ -255,7 +328,6 @@ const getMessages = async (req, res) => {
     const userId = req.user.id;
     const { before, limit = 50 } = req.query;
 
-    // Verificar que el usuario es miembro de la room
     const membership = await prisma.chatRoomMember.findUnique({
       where: { roomId_userId: { roomId, userId } }
     });
@@ -273,13 +345,12 @@ const getMessages = async (req, res) => {
       take: parseInt(limit),
       orderBy: { createdAt: 'desc' },
       include: {
-        user: { select: { id: true, email: true } }
+        user: { select: USER_PUBLIC_SELECT }
       }
     });
 
     let nextCursor = null;
     if (messages.length === parseInt(limit)) {
-      // Como ordenamos descendentemente, el último de este array es el más antiguo
       nextCursor = messages[messages.length - 1].createdAt;
     }
 
@@ -293,10 +364,83 @@ const getMessages = async (req, res) => {
   }
 };
 
+const sendMessage = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const userId = req.user.id;
+    let { content, mediaUrl, mediaType, activityId } = req.body;
+
+    if (req.file) {
+      const backendUrl = process.env.BACKEND_URL || '';
+      mediaUrl = backendUrl
+        ? `${backendUrl}/uploads/${req.file.filename}`
+        : `/uploads/${req.file.filename}`;
+      mediaType = mediaType || 'IMAGE';
+    }
+
+    const text = typeof content === 'string' ? content.trim() : '';
+    if (!text && !mediaUrl && !activityId) {
+      return res.status(400).json({
+        error: 'Se requiere content, mediaUrl o activityId'
+      });
+    }
+
+    const membership = await prisma.chatRoomMember.findUnique({
+      where: { roomId_userId: { roomId, userId } }
+    });
+    if (!membership) {
+      return res.status(403).json({ error: 'No eres miembro de esta sala' });
+    }
+
+    if (activityId) {
+      const activity = await prisma.activity.findFirst({
+        where: { id: activityId, userId }
+      });
+      if (!activity) {
+        return res.status(400).json({ error: 'Actividad no válida' });
+      }
+      mediaType = mediaType || 'ACTIVITY';
+    }
+
+    const message = await prisma.chatMessage.create({
+      data: {
+        roomId,
+        userId,
+        content: text || (mediaType === 'IMAGE' ? '📷 Imagen' : mediaType === 'AUDIO' ? '🎤 Audio' : mediaType === 'ACTIVITY' ? '🏃 Actividad' : ''),
+        mediaUrl: mediaUrl || null,
+        mediaType: mediaType || null,
+        activityId: activityId || null
+      },
+      include: {
+        user: { select: USER_PUBLIC_SELECT }
+      }
+    });
+
+    try {
+      emitToRoom(roomId, 'chat:new_message', message);
+      emitToRoom(roomId, 'chat:message', message);
+    } catch {
+      // Socket puede no estar inicializado en tests
+    }
+
+    res.status(201).json(message);
+  } catch (error) {
+    console.error('[ERROR]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 const markAsRead = async (req, res) => {
   try {
     const { roomId } = req.params;
     const userId = req.user.id;
+
+    const membership = await prisma.chatRoomMember.findUnique({
+      where: { roomId_userId: { roomId, userId } }
+    });
+    if (!membership) {
+      return res.status(403).json({ error: 'No eres miembro de esta sala' });
+    }
 
     await prisma.chatRoomMember.update({
       where: { roomId_userId: { roomId, userId } },
@@ -316,5 +460,7 @@ module.exports = {
   getOrCreateGroupRoom,
   getOrCreateCommunityRoom,
   getMessages,
-  markAsRead
+  sendMessage,
+  markAsRead,
+  markRead: markAsRead
 };

@@ -68,4 +68,19 @@ const uploadStoryMedia = multer({
   fileFilter: storyMediaFilter
 });
 
-module.exports = { uploadActivityFile, uploadImage, uploadStoryMedia };
+// Chat: permite imágenes y audios (mensajes de voz).
+const chatMediaFilter = (req, file, cb) => {
+  if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('audio/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Solo se permiten imágenes o audios'), false);
+  }
+};
+
+const uploadChatMedia = multer({
+  storage: imageStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: chatMediaFilter
+});
+
+module.exports = { uploadActivityFile, uploadImage, uploadStoryMedia, uploadChatMedia };

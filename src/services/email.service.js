@@ -81,17 +81,18 @@ const sendVerificationOTP = async (email, otpCode, nombre) => {
 };
 
 const sendResetPasswordEmail = async (email, resetToken, nombre) => {
+  // resetToken es el código OTP de 6 dígitos que el usuario debe ingresar en la app.
   const subject = `Recuperación de contraseña - ${APP_NAME}`;
-  const resetUrl = `${FRONTEND_URL}/reset-password?token=${resetToken}`;
-  const text = `Hola ${nombre}, has solicitado restablecer tu contraseña. Haz clic aquí: ${resetUrl}`;
+  const text = `Hola ${nombre}, tu código para restablecer la contraseña es: ${resetToken}. Es válido por 1 hora. Si no lo solicitaste, ignora este correo.`;
   const html = `
     <div style="font-family: Arial, sans-serif; background-color: #1a1a1a; color: #ffffff; padding: 30px; text-align: center;">
       <h1 style="color: #4CAF50;">Recuperación de Contraseña</h1>
-      <p style="font-size: 16px;">Hola ${nombre}, has solicitado restablecer tu contraseña.</p>
-      <a href="${resetUrl}" style="display: inline-block; margin: 30px 0; padding: 15px 30px; background-color: #4CAF50; color: #fff; text-decoration: none; border-radius: 5px; font-weight: bold;">
-        Restablecer Contraseña
-      </a>
-      <p style="font-size: 14px; color: #888;">Este link es válido por 1 hora. Si no lo solicitaste, ignora este correo.</p>
+      <p style="font-size: 16px;">Hola ${nombre}, usá el siguiente código para restablecer tu contraseña:</p>
+      <div style="margin: 30px auto; padding: 20px; background-color: #333; border-radius: 8px; font-size: 32px; font-weight: bold; letter-spacing: 5px; width: fit-content;">
+        ${resetToken}
+      </div>
+      <p style="font-size: 14px; color: #888;">Ingresá este código en la app para elegir una nueva contraseña. El código es válido por 1 hora.</p>
+      <p style="font-size: 14px; color: #888;">Si no solicitaste este cambio, ignorá este correo: tu contraseña seguirá siendo la misma.</p>
     </div>
   `;
   return sendEmail(email, subject, text, html, false);

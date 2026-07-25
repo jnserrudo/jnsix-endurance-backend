@@ -102,4 +102,47 @@ function activeMissionWhere(now = new Date()) {
   };
 }
 
-module.exports = { rotateMissions, activeMissionWhere, startOfDay, addDays };
+/**
+ * Misión destacada del día (ruleta): prioriza DAILY_*, sino rota entre activas.
+ */
+async function getTodayMissionForUser(userId, now = new Date()) {
+  const active = await prisma.mission.findMany({
+    where: activeMissionWhere(now),
+    include: {
+      userMissions: { where: { userId } },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  if (!active.length) return null;
+
+  const daily = active.filter((m) => String(m.type || '').startsWith('DAILY_'));
+  const pool = daily.length ? daily : active;
+
+  const dayIndex = Math.floor(startOfDay(now).getTime() / 86400000);
+  const picked = pool[dayIndex % pool.length];
+  const userMission = picked.userMissions[0] || null;
+
+  return {
+    id: picked.id,
+    name: picked.name,
+    description: picked.description,
+    type: picked.type,
+    targetValue: picked.targetValue,
+    rewardPts: picked.rewardPts,
+    startDate: picked.startDate,
+    endDate: picked.endDate,
+    progress: userMission ? userMission.currentProgress : 0,
+    completed: userMission ? userMission.completed : false,
+    completedAt: userMission ? userMission.completedAt : null,
+    pool: pool.map((m) => ({ id: m.id, name: m.name, type: m.type })),
+  };
+}
+
+module.exports = {
+  rotateMissions,
+  activeMissionWhere,
+  startOfDay,
+  addDays,
+  getTodayMissionForUser,
+};

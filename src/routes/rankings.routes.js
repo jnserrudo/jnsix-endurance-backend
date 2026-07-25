@@ -12,5 +12,6 @@ router.get('/global', rankingsController.getGlobalRankings);
 router.get('/friends', rankingsController.getFriendsRankings);
 router.get('/group/:id', rankingsController.getGroupRankings);
 router.get('/community/:id', rankingsController.getCommunityRankings);
+router.get('/season/:seasonId', rankingsController.getSeasonRankings);
 
 module.exports = router;

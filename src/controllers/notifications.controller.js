@@ -1,7 +1,10 @@
 const prisma = require('../lib/prisma');
 const { Expo } = require('expo-server-sdk');
+const { NotificationType: NotificationTypeEnum } = require('@prisma/client');
 
 let expo = new Expo({ accessToken: process.env.EXPO_ACCESS_TOKEN });
+
+const ALL_NOTIFICATION_TYPES = Object.values(NotificationTypeEnum);
 
 const getNotifications = async (req, res) => {
   try {
@@ -118,11 +121,94 @@ const sendPushNotification = async (req, res) => {
   }
 };
 
+const getPreferences = async (req, res) => {
+  try {
+    const rows = await prisma.notificationPreference.findMany({
+      where: { userId: req.user.id }
+    });
+    const byType = new Map(rows.map((r) => [r.type, r]));
+
+    const preferences = ALL_NOTIFICATION_TYPES.map((type) => {
+      const existing = byType.get(type);
+      return {
+        type,
+        inAppEnabled: existing ? existing.inAppEnabled : true,
+        pushEnabled: existing ? existing.pushEnabled : true,
+        emailEnabled: existing ? existing.emailEnabled : true
+      };
+    });
+
+    res.json({ preferences });
+  } catch (error) {
+    console.error('[ERROR] [GET_PREFERENCES]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+const updatePreferences = async (req, res) => {
+  try {
+    const { preferences } = req.body;
+    if (!Array.isArray(preferences)) {
+      return res.status(400).json({ error: 'Formato de preferencias inválido.' });
+    }
+
+    const validTypes = new Set(ALL_NOTIFICATION_TYPES);
+
+    for (const pref of preferences) {
+      if (!pref || !validTypes.has(pref.type)) {
+        return res.status(400).json({ error: `Tipo de notificación inválido: ${pref?.type}` });
+      }
+    }
+
+    await prisma.$transaction(
+      preferences.map((pref) => {
+        const data = {
+          ...(pref.inAppEnabled !== undefined && { inAppEnabled: Boolean(pref.inAppEnabled) }),
+          ...(pref.pushEnabled !== undefined && { pushEnabled: Boolean(pref.pushEnabled) }),
+          ...(pref.emailEnabled !== undefined && { emailEnabled: Boolean(pref.emailEnabled) })
+        };
+        return prisma.notificationPreference.upsert({
+          where: { userId_type: { userId: req.user.id, type: pref.type } },
+          update: data,
+          create: {
+            userId: req.user.id,
+            type: pref.type,
+            inAppEnabled: pref.inAppEnabled !== undefined ? Boolean(pref.inAppEnabled) : true,
+            pushEnabled: pref.pushEnabled !== undefined ? Boolean(pref.pushEnabled) : true,
+            emailEnabled: pref.emailEnabled !== undefined ? Boolean(pref.emailEnabled) : true
+          }
+        });
+      })
+    );
+
+    const rows = await prisma.notificationPreference.findMany({
+      where: { userId: req.user.id }
+    });
+    const byType = new Map(rows.map((r) => [r.type, r]));
+    const result = ALL_NOTIFICATION_TYPES.map((type) => {
+      const existing = byType.get(type);
+      return {
+        type,
+        inAppEnabled: existing ? existing.inAppEnabled : true,
+        pushEnabled: existing ? existing.pushEnabled : true,
+        emailEnabled: existing ? existing.emailEnabled : true
+      };
+    });
+
+    res.json({ preferences: result });
+  } catch (error) {
+    console.error('[ERROR] [UPDATE_PREFERENCES]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 module.exports = {
   getNotifications,
   getUnreadCount,
   markAsRead,
   markAllAsRead,
   registerPushToken,
-  sendPushNotification
+  sendPushNotification,
+  getPreferences,
+  updatePreferences
 };

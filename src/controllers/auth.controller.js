@@ -5,6 +5,7 @@ const stravaService = require('../services/strava.service');
 const emailService = require('../services/email.service');
 const pushService = require('../services/push.service');
 const prisma = require('../lib/prisma');
+const { APP_NAME } = require('../constants/brand');
 
 const generateToken = (userId, email, role) => {
   return jwt.sign(
@@ -12,6 +13,80 @@ const generateToken = (userId, email, role) => {
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
+};
+
+// ============================================================
+// TOTP (2FA) helpers — RFC 6238, sin dependencias externas
+// ============================================================
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+const base32Encode = (buffer) => {
+  let bits = 0;
+  let value = 0;
+  let output = '';
+  for (let i = 0; i < buffer.length; i++) {
+    value = (value << 8) | buffer[i];
+    bits += 8;
+    while (bits >= 5) {
+      output += BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) {
+    output += BASE32_ALPHABET[(value << (5 - bits)) & 31];
+  }
+  return output;
+};
+
+const base32Decode = (input) => {
+  const clean = String(input).replace(/=+$/, '').toUpperCase().replace(/\s/g, '');
+  let bits = 0;
+  let value = 0;
+  const output = [];
+  for (let i = 0; i < clean.length; i++) {
+    const idx = BASE32_ALPHABET.indexOf(clean[i]);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      output.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(output);
+};
+
+const generateTotpSecret = () => base32Encode(crypto.randomBytes(20));
+
+const generateTotpToken = (secret, counter) => {
+  const key = base32Decode(secret);
+  const buf = Buffer.alloc(8);
+  buf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
+  buf.writeUInt32BE(counter >>> 0, 4);
+  const hmac = crypto.createHmac('sha1', key).update(buf).digest();
+  const offset = hmac[hmac.length - 1] & 0xf;
+  const code =
+    ((hmac[offset] & 0x7f) << 24) |
+    ((hmac[offset + 1] & 0xff) << 16) |
+    ((hmac[offset + 2] & 0xff) << 8) |
+    (hmac[offset + 3] & 0xff);
+  return (code % 1000000).toString().padStart(6, '0');
+};
+
+// Verifica un código TOTP con período de 30s y una ventana de tolerancia (±1).
+const verifyTotp = (secret, token, window = 1) => {
+  if (!secret || !token) return false;
+  const normalized = String(token).replace(/\s/g, '');
+  if (!/^\d{6}$/.test(normalized)) return false;
+  const counter = Math.floor(Date.now() / 1000 / 30);
+  for (let i = -window; i <= window; i++) {
+    try {
+      if (generateTotpToken(secret, counter + i) === normalized) return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  return false;
 };
 
 const register = async (req, res) => {
@@ -229,6 +304,17 @@ const login = async (req, res) => {
       return res.status(401).json({ error: 'Tus credenciales son incorrectas. Verifica tu usuario/correo y contraseña.' });
     }
 
+    // Verificación en dos pasos (2FA) si está activada
+    if (user.totpEnabled) {
+      const { totpCode } = req.body;
+      if (!totpCode) {
+        return res.status(401).json({ error: 'Ingresá el código de verificación en dos pasos.', requiresTotp: true });
+      }
+      if (!verifyTotp(user.totpSecret, totpCode)) {
+        return res.status(401).json({ error: 'El código de verificación en dos pasos es incorrecto o expiró.', requiresTotp: true });
+      }
+    }
+
     // Cuentas BUSINESS creadas antes del fix pueden quedar con emailVerified=false
     // y quedar atrapadas en VerifyEmail. La aprobación admin es el gate real.
     let emailVerified = user.emailVerified;
@@ -406,6 +492,7 @@ const getCurrentUser = async (req, res) => {
         username: true,
         role: true,
         stravaId: true,
+        lastSyncDate: true,
         emailVerified: true,
         firstName: true,
         lastName: true,
@@ -427,6 +514,12 @@ const getCurrentUser = async (req, res) => {
         activitiesVisible: true,
         createdAt: true,
         subscriptionTier: true,
+        onboardingCompleted: true,
+        totpEnabled: true,
+        coachMemory: true,
+        hrZones: true,
+        paceZones: true,
+        powerZones: true,
         userScore: {
           include: { currentRank: true }
         },
@@ -624,6 +717,188 @@ const unsubscribe = async (req, res) => {
   }
 };
 
+// ============================================================
+// Recuperación / cambio de contraseña
+// ============================================================
+const forgotPassword = async (req, res) => {
+  const genericResponse = { message: 'Si existe la cuenta, enviamos un código.' };
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(200).json(genericResponse);
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return res.status(200).json(genericResponse);
+
+    // Invalidar códigos previos sin usar
+    await prisma.passwordReset.deleteMany({ where: { userId: user.id, used: false } });
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    await prisma.passwordReset.create({
+      data: {
+        userId: user.id,
+        token: otpCode,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000) // 1 hora
+      }
+    });
+
+    try {
+      const nombre = user.firstName || user.email.split('@')[0];
+      await emailService.sendResetPasswordEmail(user.email, otpCode, nombre);
+    } catch (mailErr) {
+      console.error('[ERROR] [FORGOT_PASSWORD] Error enviando email:', mailErr.message);
+    }
+
+    return res.status(200).json(genericResponse);
+  } catch (error) {
+    console.error('[ERROR] [FORGOT_PASSWORD]', error);
+    // No filtrar existencia de la cuenta ni siquiera ante errores internos
+    return res.status(200).json(genericResponse);
+  }
+};
+
+const resetPassword = async (req, res) => {
+  try {
+    const { email, token, newPassword } = req.body;
+    if (!email || !token || !newPassword) {
+      return res.status(400).json({ error: 'Faltan datos para restablecer la contraseña.' });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(400).json({ error: 'El código es inválido o ha expirado.' });
+    }
+
+    const reset = await prisma.passwordReset.findFirst({
+      where: { userId: user.id, token: String(token), used: false }
+    });
+
+    if (!reset || new Date() > reset.expiresAt) {
+      return res.status(400).json({ error: 'El código es inválido o ha expirado.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.$transaction([
+      prisma.passwordReset.update({ where: { id: reset.id }, data: { used: true } }),
+      prisma.user.update({ where: { id: user.id }, data: { password: hashedPassword } })
+    ]);
+
+    return res.json({ message: 'Tu contraseña ha sido actualizada con éxito.' });
+  } catch (error) {
+    console.error('[ERROR] [RESET_PASSWORD]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Ingresá tu contraseña actual y la nueva.' });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user || !user.password) {
+      return res.status(400).json({ error: 'No podés cambiar la contraseña de esta cuenta.' });
+    }
+
+    const isValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Tu contraseña actual es incorrecta.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({ where: { id: user.id }, data: { password: hashedPassword } });
+
+    return res.json({ message: 'Tu contraseña ha sido actualizada con éxito.' });
+  } catch (error) {
+    console.error('[ERROR] [CHANGE_PASSWORD]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+// ============================================================
+// Verificación en dos pasos (2FA / TOTP)
+// ============================================================
+const setupTotp = async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return res.status(404).json({ error: 'No hemos podido encontrar tu cuenta.' });
+
+    const secret = generateTotpSecret();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { totpSecret: secret, totpEnabled: false }
+    });
+
+    const label = encodeURIComponent(`${APP_NAME}:${user.email}`);
+    const issuer = encodeURIComponent(APP_NAME);
+    const otpauthUrl = `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
+
+    return res.json({ secret, otpauthUrl });
+  } catch (error) {
+    console.error('[ERROR] [SETUP_TOTP]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+const enableTotp = async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ error: 'Ingresá el código de tu app de autenticación.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user || !user.totpSecret) {
+      return res.status(400).json({ error: 'Primero configurá la verificación en dos pasos.' });
+    }
+
+    if (!verifyTotp(user.totpSecret, code)) {
+      return res.status(400).json({ error: 'El código es incorrecto o expiró. Intentá de nuevo.' });
+    }
+
+    await prisma.user.update({ where: { id: user.id }, data: { totpEnabled: true } });
+    return res.json({ message: 'Verificación en dos pasos activada.', totpEnabled: true });
+  } catch (error) {
+    console.error('[ERROR] [ENABLE_TOTP]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
+const disableTotp = async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ error: 'Ingresá tu contraseña para desactivar la verificación en dos pasos.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user || !user.password) {
+      return res.status(400).json({ error: 'No podés modificar la seguridad de esta cuenta.' });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Tu contraseña es incorrecta.' });
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { totpEnabled: false, totpSecret: null }
+    });
+    return res.json({ message: 'Verificación en dos pasos desactivada.', totpEnabled: false });
+  } catch (error) {
+    console.error('[ERROR] [DISABLE_TOTP]', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 module.exports = {
   register,
   registerBusiness,
@@ -637,6 +912,12 @@ module.exports = {
   resendVerification,
   unsubscribe,
   registerPushToken,
-  removePushToken
+  removePushToken,
+  forgotPassword,
+  resetPassword,
+  changePassword,
+  setupTotp,
+  enableTotp,
+  disableTotp
 };
 
