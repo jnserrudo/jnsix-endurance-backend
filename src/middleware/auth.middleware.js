@@ -17,6 +17,7 @@ const authenticateToken = async (req, res, next) => {
       select: {
         id: true,
         email: true,
+        username: true,
         role: true,
         stravaId: true
       }
@@ -70,6 +71,7 @@ const optionalAuth = async (req, res, next) => {
         select: {
           id: true,
           email: true,
+          username: true,
           role: true,
           stravaId: true
         }

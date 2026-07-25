@@ -5,6 +5,7 @@ const storage = require('../services/storage.service');
 const listGroups = async (req, res) => {
   try {
     const userId = req.user.id;
+    const { q } = req.query;
 
     const groups = await prisma.group.findMany({
       where: {
@@ -13,11 +14,16 @@ const listGroups = async (req, res) => {
         OR: [
           { visibility: 'PUBLIC' },
           { members: { some: { userId } } }
-        ]
+        ],
+        ...(q
+          ? {
+              name: { contains: String(q) }
+            }
+          : {})
       },
       include: {
         _count: { select: { members: true } },
-        owner: { select: { id: true, email: true } },
+        owner: { select: { id: true, email: true, username: true } },
         members: {
           where: { userId },
           select: { role: true }
@@ -39,21 +45,32 @@ const listGroups = async (req, res) => {
 const getGroupById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id;
 
     const group = await prisma.group.findFirst({
       where: { id, isActive: true, deletedAt: null },
       include: {
-        owner: { select: { id: true, email: true } },
-        members: { include: { user: { select: { id: true, email: true } } } },
-        subgroups: { where: { isActive: true, deletedAt: null } }
+        owner: { select: { id: true, email: true, username: true } },
+        members: {
+          include: {
+            user: { select: { id: true, email: true, username: true, avatarUrl: true } }
+          }
+        },
+        subgroups: { where: { isActive: true, deletedAt: null } },
+        _count: { select: { members: true } }
       }
     });
 
     if (!group) {
-      return res.status(404).json({ error: 'Group not found' });
+      return res.status(404).json({ error: 'Grupo no encontrado' });
     }
 
-    res.json(group);
+    const myMembership = group.members.find((m) => m.userId === userId);
+
+    res.json({
+      ...group,
+      myRole: myMembership?.role || null
+    });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });

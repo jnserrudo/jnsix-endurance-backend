@@ -269,7 +269,7 @@ function formatTime(seconds) {
 const getAnalysisHistory = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { page = 1, limit = 20, type, activityId } = req.query;
+    const { page = 1, limit = 20, type, activityId, competitionGoalId } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
@@ -277,6 +277,7 @@ const getAnalysisHistory = async (req, res) => {
     const where = { userId };
     if (type) where.type = type;
     if (activityId) where.activityId = activityId;
+    if (competitionGoalId) where.competitionGoalId = competitionGoalId;
 
     const analyses = await prisma.aIAnalysis.findMany({
       where,
@@ -570,7 +571,8 @@ Responde en Markdown móvil: secciones ## sin numerar y viñetas (-):
 const chatWithCoach = async (req, res) => {
   try {
     const userId = req.user.id;
-    let { messages, message } = req.body;
+    let { messages, message, mode } = req.body;
+    const chatMode = mode === 'chat' ? 'chat' : 'coach';
 
     if (!messages && !message) {
       return res.status(400).json({ error: 'Escribí un mensaje para continuar.' });
@@ -601,7 +603,14 @@ const chatWithCoach = async (req, res) => {
       `- Fecha: ${a.startDate.toISOString().split('T')[0]} | Nombre: ${a.name} | Tipo: ${a.type} | Distancia: ${a.distanceKm.toFixed(2)} km | Desnivel: ${Math.round(a.elevationM)}m | Tiempo: ${Math.floor(a.movingTime/60)}m ${a.movingTime%60}s | FC Promedio: ${a.averageHr || 'N/A'} bpm`
     ).join('\n');
 
-    const systemPrompt = `Eres ${APP_BRAND_BADGE} AI Coach, un entrenador personal y consultor deportivo experto en triatlón, ciclismo, trail running y natación.
+    const systemPrompt = chatMode === 'chat'
+      ? `Eres ${APP_BRAND_BADGE} AI Coach en modo conversación amigable.
+Podés saludar, motivar y charlar con naturalidad. Si el atleta pregunta por entrenamiento, usá su historial reciente con criterio.
+No fuerces un análisis técnico si solo está saludando o haciendo una pregunta casual.
+Historial reciente (solo si hace falta):
+${activitiesSummary || 'Sin actividades aún.'}
+Respuestas cortas en Markdown legible en móvil. Sin emojis.`
+      : `Eres ${APP_BRAND_BADGE} AI Coach, un entrenador personal y consultor deportivo experto en triatlón, ciclismo, trail running y natación.
 Tu objetivo es guiar al atleta con respuestas basadas en la ciencia del deporte, siendo alentador, profesional y muy técnico.
 
 Aquí tienes el historial reciente de las últimas 15 actividades del atleta en la plataforma:
@@ -747,6 +756,7 @@ Reglas de formato: Markdown limpio, ## sin números, viñetas con -, sin emojis,
     const analysis = await prisma.aIAnalysis.create({
       data: {
         userId,
+        competitionGoalId: id,
         type: 'COMPETITION_STRATEGY',
         prompt: `Analizar competencia: ${competition.name} (ID: ${id})`,
         response: result.response,
@@ -754,6 +764,12 @@ Reglas de formato: Markdown limpio, ## sin números, viñetas con -, sin emojis,
         tokensUsed: result.tokensUsed
       }
     });
+
+    if (!result.response || !String(result.response).trim()) {
+      return res.status(502).json({
+        error: 'La estrategia quedó vacía. Intentá analizar de nuevo en unos minutos.',
+      });
+    }
 
     res.json(analysis);
   } catch (error) {

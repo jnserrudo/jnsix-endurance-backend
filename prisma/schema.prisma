@@ -195,20 +195,23 @@ model ComparisonActivity {
 }
 
 model AIAnalysis {
-  id         String         @id @default(uuid())
-  userId     String         @map("user_id")
-  activityId String?        @map("activity_id")
-  type       AIAnalysisType
-  prompt     String         @db.Text
-  response   String         @db.Text
-  model      String
-  tokensUsed Int            @map("tokens_used")
-  createdAt  DateTime       @default(now()) @map("created_at")
-  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  activity   Activity?      @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  id                String         @id @default(uuid())
+  userId            String         @map("user_id")
+  activityId        String?        @map("activity_id")
+  competitionGoalId String?        @map("competition_goal_id")
+  type              AIAnalysisType
+  prompt            String         @db.Text
+  response          String         @db.Text
+  model             String
+  tokensUsed        Int            @map("tokens_used")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity          Activity?      @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  competitionGoal   CompetitionGoal? @relation(fields: [competitionGoalId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([activityId])
+  @@index([competitionGoalId])
   @@index([type])
   @@map("ai_analyses")
 }
@@ -229,6 +232,7 @@ model CompetitionGoal {
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   simulations Activity[]   @relation("RaceSimulations")
   userPlans   UserPlan[]
+  aiAnalyses  AIAnalysis[]
 
   @@index([userId])
   @@map("competition_goals")

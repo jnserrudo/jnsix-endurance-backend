@@ -3,6 +3,8 @@ const scoringService = require('./scoring.service');
 const { copy } = require('../constants/copy.es');
 const { activeMissionWhere } = require('./missionRotation.service');
 
+const { calculateStreakFromDates } = require('../utils/streak');
+
 class GamificationService {
   async updateStreak(userId) {
     try {
@@ -12,28 +14,7 @@ class GamificationService {
         select: { startDate: true }
       });
 
-      if (activities.length === 0) return 0;
-
-      const dates = [...new Set(activities.map((a) => a.startDate.toISOString().split('T')[0]))];
-
-      let currentStreak = 0;
-      const today = new Date().toISOString().split('T')[0];
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-
-      if (dates.includes(today) || dates.includes(yesterday)) {
-        currentStreak = 1;
-        const checkDate = new Date(dates[0]);
-
-        for (let i = 1; i < dates.length; i++) {
-          checkDate.setDate(checkDate.getDate() - 1);
-          const expectedStr = checkDate.toISOString().split('T')[0];
-          if (dates[i] === expectedStr) {
-            currentStreak++;
-          } else {
-            break;
-          }
-        }
-      }
+      const currentStreak = calculateStreakFromDates(activities.map((a) => a.startDate));
 
       let streakRecord = await prisma.streak.findUnique({ where: { userId } });
       if (!streakRecord) {

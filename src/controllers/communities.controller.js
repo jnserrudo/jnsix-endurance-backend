@@ -37,21 +37,30 @@ const listCommunities = async (req, res) => {
 const getCommunityById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id;
 
     const community = await prisma.community.findFirst({
       where: { id, isActive: true, deletedAt: null },
       include: {
         members: {
-          include: { user: { select: { id: true, email: true } } }
-        }
+          include: {
+            user: { select: { id: true, email: true, username: true, avatarUrl: true } }
+          }
+        },
+        _count: { select: { members: true } }
       }
     });
 
     if (!community) {
-      return res.status(404).json({ error: 'Community not found' });
+      return res.status(404).json({ error: 'Comunidad no encontrada' });
     }
 
-    res.json(community);
+    const myMembership = community.members.find((m) => m.userId === userId);
+
+    res.json({
+      ...community,
+      myRole: myMembership?.role || null
+    });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });

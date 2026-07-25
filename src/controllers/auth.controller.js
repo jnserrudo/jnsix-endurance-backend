@@ -23,11 +23,22 @@ const register = async (req, res) => {
       return res.status(400).json({ error: 'Por favor, ingresa un correo y una contraseña.' });
     }
 
+    const normalizedUsername = typeof username === 'string' ? username.trim() : '';
+    if (!normalizedUsername) {
+      return res.status(400).json({ error: 'Elegí un nombre de usuario.' });
+    }
+    if (normalizedUsername.length < 3 || normalizedUsername.length > 24) {
+      return res.status(400).json({ error: 'El usuario debe tener entre 3 y 24 caracteres.' });
+    }
+    if (!/^[a-zA-Z0-9._]+$/.test(normalizedUsername)) {
+      return res.status(400).json({ error: 'El usuario solo puede tener letras, números, punto y guión bajo.' });
+    }
+
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: [
           { email },
-          ...(username ? [{ username }] : [])
+          { username: normalizedUsername }
         ]
       }
     });
@@ -45,7 +56,7 @@ const register = async (req, res) => {
     const user = await prisma.user.create({
       data: {
         email,
-        username: username || null,
+        username: normalizedUsername,
         password: hashedPassword,
         role: 'ATHLETE'
       }

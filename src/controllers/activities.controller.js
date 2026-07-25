@@ -11,6 +11,7 @@ const gamificationService = require('../services/gamification.service');
 const achievementsController = require('./achievements.controller');
 const { detectPersonalRecords } = require('../services/personalRecords.service');
 const prisma = require('../lib/prisma');
+const { calculateStreakFromDates } = require('../utils/streak');
 
 async function collectPostCreateExtras(userId, activity, { personalRecords = false } = {}) {
   const extras = { unlockedAchievements: [] };
@@ -962,6 +963,7 @@ const getDashboardMetrics = async (req, res) => {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const yearStart = new Date(now.getFullYear(), 0, 1);
 
     // Esta semana
     const thisWeekActivities = await prisma.activity.findMany({
@@ -993,6 +995,21 @@ const getDashboardMetrics = async (req, res) => {
     const thisMonthDistance = thisMonthActivities.reduce((sum, a) => sum + (a.distanceKm || 0), 0);
     const thisMonthTime = thisMonthActivities.reduce((sum, a) => sum + (a.movingTime || 0), 0);
 
+    // Este año
+    const thisYearActivities = await prisma.activity.findMany({
+      where: {
+        userId,
+        startDate: { gte: yearStart }
+      },
+      select: {
+        distanceKm: true,
+        movingTime: true
+      }
+    });
+
+    const thisYearDistance = thisYearActivities.reduce((sum, a) => sum + (a.distanceKm || 0), 0);
+    const thisYearTime = thisYearActivities.reduce((sum, a) => sum + (a.movingTime || 0), 0);
+
     // Récord distancia
     const longestActivity = await prisma.activity.findFirst({
       where: { userId },
@@ -1003,7 +1020,7 @@ const getDashboardMetrics = async (req, res) => {
       }
     });
 
-    // Racha - días consecutivos con actividad
+    // Racha - misma lógica que gamification Streak
     const allActivities = await prisma.activity.findMany({
       where: { userId },
       select: {
@@ -1012,7 +1029,14 @@ const getDashboardMetrics = async (req, res) => {
       orderBy: { startDate: 'desc' }
     });
 
-    const streak = calculateStreak(allActivities);
+    const streak = calculateStreakFromDates(allActivities.map((a) => a.startDate));
+
+    // Persist aligned streak so profile /gamification/streak matches dashboard
+    try {
+      await gamificationService.updateStreak(userId);
+    } catch (streakErr) {
+      console.warn('[Dashboard] streak sync skipped:', streakErr.message);
+    }
 
     // Score y Rank
     const userScore = await prisma.userScore.findUnique({
@@ -1032,6 +1056,11 @@ const getDashboardMetrics = async (req, res) => {
         distance: thisMonthDistance,
         time: thisMonthTime,
         count: thisMonthActivities.length
+      },
+      thisYear: {
+        distance: thisYearDistance,
+        time: thisYearTime,
+        count: thisYearActivities.length
       },
       record: {
         distance: longestActivity?.distanceKm || 0,
@@ -1120,36 +1149,7 @@ const syncHealthWorkouts = async (req, res) => {
 };
 
 function calculateStreak(activities) {
-  if (activities.length === 0) return 0;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const activityDates = activities
-    .map(a => {
-      const date = new Date(a.startDate);
-      date.setHours(0, 0, 0, 0);
-      return date.getTime();
-    })
-    .sort((a, b) => b - a);
-
-  let streak = 0;
-  let currentDate = today.getTime();
-  const oneDay = 24 * 60 * 60 * 1000;
-
-  for (const date of activityDates) {
-    if (date === currentDate) {
-      streak++;
-      currentDate -= oneDay;
-    } else if (date === currentDate - oneDay) {
-      currentDate -= oneDay;
-      streak++;
-    } else {
-      break;
-    }
-  }
-
-  return streak;
+  return calculateStreakFromDates((activities || []).map((a) => a.startDate));
 }
 
 const createManualActivity = async (req, res) => {

@@ -55,11 +55,11 @@ const buildRankingsQuery = async ({ friendIds, scope, scopeId, period }) => {
   const userIdsWithScores = Object.keys(scoresByUser);
   const users = await prisma.user.findMany({
     where: { id: { in: userIdsWithScores } },
-    select: { id: true, email: true }
+    select: { id: true, email: true, username: true }
   });
 
   const userMap = users.reduce((acc, u) => {
-    acc[u.id] = u.email;
+    acc[u.id] = { email: u.email, username: u.username };
     return acc;
   }, {});
 
@@ -75,7 +75,8 @@ const buildRankingsQuery = async ({ friendIds, scope, scopeId, period }) => {
   const rankings = Object.entries(scoresByUser)
     .map(([uid, points]) => ({
       userId: uid,
-      email: userMap[uid] || null,
+      email: userMap[uid]?.email || null,
+      username: userMap[uid]?.username || null,
       totalPoints: points,
       rank: rankMap[uid] || null
     }))

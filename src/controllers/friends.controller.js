@@ -90,7 +90,7 @@ const sendRequest = async (req, res) => {
 
     await notify(friendId, 'FRIEND_REQUEST', {
       title: 'Nueva solicitud de amistad',
-      body: `${req.user.email} te envio una solicitud de amistad`,
+      body: `${req.user.username || req.user.email} te envió una solicitud de amistad`,
       payload: { friendshipId: friendship.id, fromUserId: userId }
     });
 
@@ -122,10 +122,10 @@ const respondRequest = async (req, res) => {
     });
 
     if (accept) {
-      await notify(friendship.userId, 'FRIEND_REQUEST', {
+      await notify(friendship.userId, 'FRIEND_ACCEPTED', {
         title: 'Solicitud de amistad aceptada',
-        body: `${req.user.email} acepto tu solicitud de amistad`,
-        payload: { friendshipId: friendship.id }
+        body: `${req.user.username || req.user.email} aceptó tu solicitud de amistad`,
+        payload: { friendshipId: friendship.id, acceptedByUserId: userId }
       });
     }
 
