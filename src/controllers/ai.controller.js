@@ -27,7 +27,7 @@ const analyzeActivity = async (req, res) => {
 
     if (!activity) {
       console.log('Activity not found:', id);
-      return res.status(404).json({ error: 'Activity not found' });
+      return res.status(404).json({ error: 'No encontramos esa actividad.' });
     }
 
     console.log('Activity found, calling AI service...');
@@ -49,7 +49,7 @@ const analyzeActivity = async (req, res) => {
     res.json(analysis);
   } catch (error) {
     console.error('Error in analyzeActivity:', error);
-    res.status(500).json({ error: error.message, details: error.stack });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -59,7 +59,7 @@ const generateTrainingPlan = async (req, res) => {
     const { goal, weeks = 12, level = 'Intermedio', availability = '4-5 días/semana', currentDistance } = req.body;
 
     if (!goal) {
-      return res.status(400).json({ error: 'Goal is required' });
+      return res.status(400).json({ error: 'Necesitamos un objetivo para continuar.' });
     }
 
     const userProfile = {
@@ -84,7 +84,7 @@ const generateTrainingPlan = async (req, res) => {
     res.json(analysis);
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -142,7 +142,7 @@ Incluye secciones Markdown con ## (sin numeración) y viñetas (-):
     res.json(analysis);
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -152,7 +152,7 @@ const predictTime = async (req, res) => {
     const { activityId, targetDistance } = req.body;
 
     if (!activityId || !targetDistance) {
-      return res.status(400).json({ error: 'Activity ID and target distance are required' });
+      return res.status(400).json({ error: 'Faltan datos de la actividad o la distancia objetivo.' });
     }
 
     const activity = await prisma.activity.findFirst({
@@ -166,7 +166,7 @@ const predictTime = async (req, res) => {
     });
 
     if (!activity) {
-      return res.status(404).json({ error: 'Activity not found' });
+      return res.status(404).json({ error: 'No encontramos esa actividad.' });
     }
 
     // Obtener actividades históricas del usuario para mejor predicción
@@ -252,7 +252,7 @@ IMPORTANTE: Si el usuario corre a ${currentPace.toFixed(2)} min/km, NO puede cor
     res.json(analysis);
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -309,7 +309,7 @@ const getAnalysisHistory = async (req, res) => {
     });
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -352,7 +352,7 @@ const getUsageStats = async (req, res) => {
     });
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -362,7 +362,7 @@ const analyzeMultipleActivities = async (req, res) => {
     const { activityIds, analysisType = 'PERFORMANCE_ANALYSIS' } = req.body;
 
     if (!activityIds || !Array.isArray(activityIds) || activityIds.length === 0) {
-      return res.status(400).json({ error: 'Activity IDs are required' });
+      return res.status(400).json({ error: 'Elegí al menos una actividad.' });
     }
 
     const activities = await prisma.activity.findMany({
@@ -381,7 +381,7 @@ const analyzeMultipleActivities = async (req, res) => {
     });
 
     if (activities.length === 0) {
-      return res.status(404).json({ error: 'No activities found' });
+      return res.status(404).json({ error: 'No encontramos actividades para analizar.' });
     }
 
     const customPrompt = `
@@ -427,7 +427,7 @@ Responde en Markdown móvil: secciones ## sin numerar y viñetas (-):
     res.json(analysis);
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -437,7 +437,7 @@ const compareActivities = async (req, res) => {
     const { activityIds } = req.body;
 
     if (!activityIds || !Array.isArray(activityIds) || activityIds.length < 2) {
-      return res.status(400).json({ error: 'At least 2 activity IDs are required' });
+      return res.status(400).json({ error: 'Elegí al menos 2 actividades.' });
     }
 
     const activities = await prisma.activity.findMany({
@@ -451,7 +451,7 @@ const compareActivities = async (req, res) => {
     });
 
     if (activities.length < 2) {
-      return res.status(404).json({ error: 'At least 2 activities are required' });
+      return res.status(404).json({ error: 'Elegí al menos 2 actividades.' });
     }
 
     const customPrompt = `
@@ -495,7 +495,7 @@ Responde en Markdown móvil: secciones ## sin numerar y viñetas (-):
     res.json(analysis);
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -521,7 +521,7 @@ const analyzeTrends = async (req, res) => {
     });
 
     if (activities.length === 0) {
-      return res.status(404).json({ error: 'No activities found in the specified period' });
+      return res.status(404).json({ error: 'No hay actividades en ese período.' });
     }
 
     const customPrompt = `
@@ -563,7 +563,7 @@ Responde en Markdown móvil: secciones ## sin numerar y viñetas (-):
     res.json(analysis);
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -573,7 +573,7 @@ const chatWithCoach = async (req, res) => {
     let { messages, message } = req.body;
 
     if (!messages && !message) {
-      return res.status(400).json({ error: 'Message or messages array is required' });
+      return res.status(400).json({ error: 'Escribí un mensaje para continuar.' });
     }
 
     if (!messages && message) {
@@ -630,7 +630,7 @@ Formato Markdown preferido: títulos ## sin numeración, viñetas (-) en lugar d
   } catch (error) {
     console.error('Error in chatWithCoach:', error);
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -654,7 +654,7 @@ const analyzeCompetitionGoal = async (req, res) => {
     });
 
     if (!competition) {
-      return res.status(404).json({ error: 'Competencia no encontrada.' });
+      return res.status(404).json({ error: 'No encontramos esa competencia.' });
     }
 
     // 2. Obtener las últimas 10 actividades para el contexto del historial
@@ -759,7 +759,7 @@ Reglas de formato: Markdown limpio, ## sin números, viñetas con -, sin emojis,
   } catch (error) {
     console.error('[ERROR] [ANALYZE COMPETITION AI] Error:', error.message);
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -818,7 +818,7 @@ const suggestComplementaryExercises = async (req, res) => {
     });
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -905,7 +905,7 @@ const getDailyBriefing = async (req, res) => {
     res.json({ text, briefing: text });
   } catch (error) {
     console.error('[ERROR] getDailyBriefing:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 

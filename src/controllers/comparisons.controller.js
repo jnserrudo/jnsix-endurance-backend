@@ -48,7 +48,7 @@ const getComparisons = async (req, res) => {
     });
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -75,13 +75,13 @@ const getComparisonById = async (req, res) => {
     });
 
     if (!comparison) {
-      return res.status(404).json({ error: 'Comparison not found' });
+      return res.status(404).json({ error: 'No encontramos esa comparación.' });
     }
 
     res.json(comparison);
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -91,11 +91,11 @@ const createComparison = async (req, res) => {
     const { name, description, activityIds } = req.body;
 
     if (!name) {
-      return res.status(400).json({ error: 'Name is required' });
+      return res.status(400).json({ error: 'Poné un nombre para la comparación.' });
     }
 
     if (!activityIds || activityIds.length < 2) {
-      return res.status(400).json({ error: 'At least 2 activities are required' });
+      return res.status(400).json({ error: 'Elegí al menos 2 actividades para comparar.' });
     }
 
     const activities = await prisma.activity.findMany({
@@ -109,7 +109,7 @@ const createComparison = async (req, res) => {
     });
 
     if (activities.length !== activityIds.length) {
-      return res.status(404).json({ error: 'Some activities not found' });
+      return res.status(404).json({ error: 'Algunas actividades ya no están disponibles.' });
     }
 
     const comparison = await prisma.activityComparison.create({
@@ -121,7 +121,7 @@ const createComparison = async (req, res) => {
           create: activityIds.map((activityId, index) => ({
             activityId,
             color: getDefaultColor(index),
-            label: `Activity ${index + 1}`
+            label: `Actividad ${index + 1}`
           }))
         }
       },
@@ -137,7 +137,7 @@ const createComparison = async (req, res) => {
     res.status(201).json(comparison);
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -153,7 +153,7 @@ const addActivityToComparison = async (req, res) => {
     });
 
     if (!comparison) {
-      return res.status(404).json({ error: 'Comparison not found' });
+      return res.status(404).json({ error: 'No encontramos esa comparación.' });
     }
 
     const activity = await prisma.activity.findFirst({
@@ -167,12 +167,12 @@ const addActivityToComparison = async (req, res) => {
     });
 
     if (!activity) {
-      return res.status(404).json({ error: 'Activity not found' });
+      return res.status(404).json({ error: 'No encontramos esa actividad.' });
     }
 
     const existingLink = comparison.activities.find(a => a.activityId === activityId);
     if (existingLink) {
-      return res.status(409).json({ error: 'Activity already in comparison' });
+      return res.status(409).json({ error: 'Esa actividad ya está en la comparación.' });
     }
 
     const comparisonActivity = await prisma.comparisonActivity.create({
@@ -180,7 +180,7 @@ const addActivityToComparison = async (req, res) => {
         comparisonId: id,
         activityId,
         color: color || getDefaultColor(comparison.activities.length),
-        label: label || `Activity ${comparison.activities.length + 1}`
+        label: label || `Actividad ${comparison.activities.length + 1}`
       },
       include: {
         activity: true
@@ -190,7 +190,7 @@ const addActivityToComparison = async (req, res) => {
     res.status(201).json(comparisonActivity);
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -204,7 +204,7 @@ const removeActivityFromComparison = async (req, res) => {
     });
 
     if (!comparison) {
-      return res.status(404).json({ error: 'Comparison not found' });
+      return res.status(404).json({ error: 'No encontramos esa comparación.' });
     }
 
     const deleted = await prisma.comparisonActivity.deleteMany({
@@ -215,13 +215,13 @@ const removeActivityFromComparison = async (req, res) => {
     });
 
     if (deleted.count === 0) {
-      return res.status(404).json({ error: 'Activity not in comparison' });
+      return res.status(404).json({ error: 'Esa actividad no está en la comparación.' });
     }
 
-    res.json({ message: 'Activity removed from comparison' });
+    res.json({ message: 'Actividad quitada de la comparación.' });
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -236,7 +236,7 @@ const updateComparison = async (req, res) => {
     });
 
     if (!comparison) {
-      return res.status(404).json({ error: 'Comparison not found' });
+      return res.status(404).json({ error: 'No encontramos esa comparación.' });
     }
 
     const updated = await prisma.activityComparison.update({
@@ -257,7 +257,7 @@ const updateComparison = async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 
@@ -271,17 +271,17 @@ const deleteComparison = async (req, res) => {
     });
 
     if (!comparison) {
-      return res.status(404).json({ error: 'Comparison not found' });
+      return res.status(404).json({ error: 'No encontramos esa comparación.' });
     }
 
     await prisma.activityComparison.delete({
       where: { id }
     });
 
-    res.json({ message: 'Comparison deleted successfully' });
+    res.json({ message: 'Comparación eliminada.' });
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });
   }
 };
 

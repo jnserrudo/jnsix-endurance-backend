@@ -29,7 +29,9 @@ const getCurrentPlan = async (req, res) => {
     res.json(userPlan);
   } catch (error) {
     console.error('[GET CURRENT PLAN ERROR]', error);
-    res.status(500).json({ error: 'Error al obtener plan de entrenamiento' });
+    res.status(500).json({
+      error: 'No pudimos cargar tu plan ahora. Intentá de nuevo en unos minutos.',
+    });
   }
 };
 
@@ -51,7 +53,7 @@ const logEffort = async (req, res) => {
     res.status(201).json(effort);
   } catch (error) {
     console.error('[LOG EFFORT ERROR]', error);
-    res.status(500).json({ error: 'Error al registrar esfuerzo' });
+    res.status(500).json({ error: 'No pudimos guardar tu esfuerzo. Intentá de nuevo.' });
   }
 };
 
@@ -71,7 +73,7 @@ const getEffortHistory = async (req, res) => {
     res.json(efforts);
   } catch (error) {
     console.error('[GET EFFORT HISTORY ERROR]', error);
-    res.status(500).json({ error: 'Error al obtener historial de esfuerzo' });
+    res.status(500).json({ error: 'No pudimos cargar el historial de esfuerzo.' });
   }
 };
 
@@ -103,7 +105,7 @@ const generatePlan = async (req, res) => {
     } = req.body;
 
     if (!goal?.trim()) {
-      return res.status(400).json({ error: 'El objetivo principal es requerido.' });
+      return res.status(400).json({ error: 'Necesitamos un objetivo para armar tu plan.' });
     }
 
     const parsedWeeks = Math.max(4, Math.min(52, parseInt(weeks, 10) || 4));
@@ -137,7 +139,7 @@ const generatePlan = async (req, res) => {
         },
       });
       if (!competitionGoal) {
-        return res.status(404).json({ error: 'Objetivo vinculado no encontrado.' });
+        return res.status(404).json({ error: 'No encontramos ese objetivo de competencia.' });
       }
     }
 
@@ -221,7 +223,9 @@ const generatePlan = async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('[GENERATE PLAN ERROR]', error);
-    res.status(500).json({ error: 'Error al generar plan' });
+    res.status(500).json({
+      error: 'No pudimos generar tu plan ahora. Intentá de nuevo en unos minutos.',
+    });
   }
 };
 

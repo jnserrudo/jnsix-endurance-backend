@@ -1,5 +1,7 @@
 const prisma = require('../lib/prisma');
 
+const SERVER_ERROR = 'Algo salió mal. Intentá de nuevo en unos minutos.';
+
 const getCompetitions = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -26,7 +28,7 @@ const getCompetitions = async (req, res) => {
   } catch (error) {
     console.error('[ERROR] [GET COMPETITIONS] Error:', error.message);
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: SERVER_ERROR });
   }
 };
 
@@ -36,15 +38,16 @@ const createCompetition = async (req, res) => {
     const { name, type, distanceKm, elevationM, targetDate, targetTime, terrainType, notes } = req.body;
 
     if (!name || !type || !distanceKm || !targetDate) {
-      return res.status(400).json({ error: 'Name, type, distance, and date are required.' });
+      return res.status(400).json({
+        error: 'Completá el nombre, la disciplina, la distancia y la fecha del evento.',
+      });
     }
 
     console.log('[INFO] [CREATE COMPETITION] Nuevo objetivo:', { name, type, distanceKm });
 
-    // Validate targetDate format
     const parsedDate = new Date(targetDate);
     if (isNaN(parsedDate.getTime())) {
-      return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD (e.g. 2025-09-20).' });
+      return res.status(400).json({ error: 'La fecha del evento no es válida. Volvé a elegirla.' });
     }
 
     const newComp = await prisma.competitionGoal.create({
@@ -68,7 +71,7 @@ const createCompetition = async (req, res) => {
   } catch (error) {
     console.error('[ERROR] [CREATE COMPETITION] Error:', error.message);
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: SERVER_ERROR });
   }
 };
 
@@ -83,15 +86,14 @@ const updateCompetition = async (req, res) => {
     });
 
     if (!comp) {
-      return res.status(404).json({ error: 'Competition goal not found.' });
+      return res.status(404).json({ error: 'No encontramos ese objetivo.' });
     }
 
-    // Validate targetDate if provided
     let parsedTargetDate = comp.targetDate;
     if (targetDate !== undefined) {
       parsedTargetDate = new Date(targetDate);
       if (isNaN(parsedTargetDate.getTime())) {
-        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD (e.g. 2025-09-20).' });
+        return res.status(400).json({ error: 'La fecha del evento no es válida. Volvé a elegirla.' });
       }
     }
 
@@ -116,7 +118,7 @@ const updateCompetition = async (req, res) => {
   } catch (error) {
     console.error('[ERROR] [UPDATE COMPETITION] Error:', error.message);
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: SERVER_ERROR });
   }
 };
 
@@ -130,29 +132,29 @@ const deleteCompetition = async (req, res) => {
     });
 
     if (!comp) {
-      return res.status(404).json({ error: 'Competition goal not found.' });
+      return res.status(404).json({ error: 'No encontramos ese objetivo.' });
     }
 
     await prisma.competitionGoal.delete({
       where: { id }
     });
 
-    res.json({ message: 'Competition goal deleted successfully.' });
+    res.json({ message: 'Objetivo eliminado.' });
   } catch (error) {
     console.error('[ERROR] [DELETE COMPETITION] Error:', error.message);
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: SERVER_ERROR });
   }
 };
 
 const associateSimulation = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { id } = req.params; // Competition ID
+    const { id } = req.params;
     const { activityId, remove = false } = req.body;
 
     if (!activityId) {
-      return res.status(400).json({ error: 'Activity ID is required.' });
+      return res.status(400).json({ error: 'Elegí una actividad para vincular.' });
     }
 
     const comp = await prisma.competitionGoal.findFirst({
@@ -160,22 +162,21 @@ const associateSimulation = async (req, res) => {
     });
 
     if (!comp) {
-      return res.status(404).json({ error: 'Competition goal not found.' });
+      return res.status(404).json({ error: 'No encontramos ese objetivo.' });
     }
 
-    // Verify activity belongs to the user
     const activity = await prisma.activity.findFirst({
       where: { id: activityId, userId }
     });
 
     if (!activity) {
-      return res.status(404).json({ error: 'Activity not found.' });
+      return res.status(404).json({ error: 'No encontramos esa actividad.' });
     }
 
     const updatedComp = await prisma.competitionGoal.update({
       where: { id },
       data: {
-        simulations: remove 
+        simulations: remove
           ? { disconnect: { id: activityId } }
           : { connect: { id: activityId } }
       },
@@ -197,7 +198,7 @@ const associateSimulation = async (req, res) => {
   } catch (error) {
     console.error('[ERROR] [ASSOCIATE SIMULATION] Error:', error.message);
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: SERVER_ERROR });
   }
 };
 
