@@ -94,59 +94,82 @@ const register = async (req, res) => {
     console.log('[INFO] [REGISTER] Intento de registro:', req.body.email);
     const { email, password, username } = req.body;
 
-    if (!email || !password) {
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    if (!normalizedEmail || !password) {
       return res.status(400).json({ error: 'Por favor, ingresa un correo y una contraseña.' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({
+        error: 'Ingresá un correo electrónico válido.',
+        code: 'INVALID_EMAIL'
+      });
+    }
+    if (typeof password !== 'string' || password.length < 6) {
+      return res.status(400).json({
+        error: 'La contraseña debe tener al menos 6 caracteres.',
+        code: 'INVALID_PASSWORD'
+      });
     }
 
     const normalizedUsername = typeof username === 'string' ? username.trim() : '';
     if (!normalizedUsername) {
-      return res.status(400).json({ error: 'Elegí un nombre de usuario.' });
+      return res.status(400).json({ error: 'Elegí un nombre de usuario.', code: 'INVALID_USERNAME' });
     }
     if (normalizedUsername.length < 3 || normalizedUsername.length > 24) {
-      return res.status(400).json({ error: 'El usuario debe tener entre 3 y 24 caracteres.' });
+      return res.status(400).json({
+        error: 'El usuario debe tener entre 3 y 24 caracteres.',
+        code: 'INVALID_USERNAME'
+      });
     }
     if (!/^[a-zA-Z0-9._]+$/.test(normalizedUsername)) {
-      return res.status(400).json({ error: 'El usuario solo puede tener letras, números, punto y guión bajo.' });
+      return res.status(400).json({
+        error: 'El usuario solo puede tener letras, números, punto y guión bajo.',
+        code: 'INVALID_USERNAME'
+      });
     }
 
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { email },
-          { username: normalizedUsername }
-        ]
-      }
-    });
+    const [emailOwner, usernameOwner] = await Promise.all([
+      prisma.user.findUnique({ where: { email: normalizedEmail }, select: { id: true } }),
+      prisma.user.findUnique({ where: { username: normalizedUsername }, select: { id: true } })
+    ]);
 
-    if (existingUser) {
-      if (existingUser.email === email) {
-        return res.status(409).json({ error: 'Ya existe una cuenta registrada con este correo.' });
-      } else {
-        return res.status(409).json({ error: 'Este nombre de usuario ya está ocupado, por favor elige otro.' });
-      }
+    if (emailOwner) {
+      return res.status(409).json({
+        error: 'Este correo ya tiene una cuenta. Iniciá sesión o recuperá tu contraseña.',
+        code: 'EMAIL_TAKEN'
+      });
+    }
+    if (usernameOwner) {
+      return res.status(409).json({
+        error: 'El nombre de usuario ya está ocupado. Probá con otro.',
+        code: 'USERNAME_TAKEN'
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-    const user = await prisma.user.create({
-      data: {
-        email,
-        username: normalizedUsername,
-        password: hashedPassword,
-        role: 'ATHLETE'
-      }
+    // La cuenta y su código se crean juntas: nunca debe quedar una cuenta
+    // incompleta si falla la creación de la verificación.
+    const user = await prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
+        data: {
+          email: normalizedEmail,
+          username: normalizedUsername,
+          password: hashedPassword,
+          role: 'ATHLETE'
+        }
+      });
+      await tx.emailVerification.create({
+        data: {
+          userId: createdUser.id,
+          token: otpCode,
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000)
+        }
+      });
+      return createdUser;
     });
     console.log('[SUCCESS] [REGISTER] Usuario creado exitosamente:', user.id);
-
-    // Create 6-digit OTP
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    await prisma.emailVerification.create({
-      data: {
-        userId: user.id,
-        token: otpCode,
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
-      }
-    });
 
     // Send OTP email
     try {
@@ -179,7 +202,28 @@ const register = async (req, res) => {
     });
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    // Cubre carreras entre dos solicitudes simultáneas, además del chequeo previo.
+    if (error?.code === 'P2002') {
+      const target = Array.isArray(error.meta?.target)
+        ? error.meta.target.join(',')
+        : String(error.meta?.target || '');
+      if (target.includes('username')) {
+        return res.status(409).json({
+          error: 'El nombre de usuario ya está ocupado. Probá con otro.',
+          code: 'USERNAME_TAKEN'
+        });
+      }
+      if (target.includes('email')) {
+        return res.status(409).json({
+          error: 'Este correo ya tiene una cuenta. Iniciá sesión o recuperá tu contraseña.',
+          code: 'EMAIL_TAKEN'
+        });
+      }
+    }
+    res.status(500).json({
+      error: 'No pudimos crear tu cuenta por un problema temporal. Intentá nuevamente en unos minutos.',
+      code: 'REGISTRATION_FAILED'
+    });
   }
 };
 
