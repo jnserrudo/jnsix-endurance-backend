@@ -1,4 +1,6 @@
-require('dotenv').config();
+const path = require('path');
+// Siempre cargar .env relativo al backend (no al cwd de PM2).
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
 const sentry = require('./lib/sentry');
@@ -41,6 +43,7 @@ const reportsRoutes = require('./routes/reports.routes');
 const eventsRoutes = require('./routes/events.routes');
 const savedSessionsRoutes = require('./routes/savedSessions.routes');
 const authController = require('./controllers/auth.controller');
+const emailService = require('./services/email.service');
 const { auditContextMiddleware } = require('./services/audit.service');
 const { initSocket } = require('./services/socket.service');
 const { startCronJobs } = require('./services/cron.service');
@@ -70,12 +73,25 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(auditContextMiddleware);
 
-const path = require('path');
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/exercises-media', express.static(path.join(__dirname, '../public/exercises')));
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'JNSIX Endurance Analytics API' });
+  const email = emailService.getEmailStatus();
+  res.json({
+    status: 'ok',
+    message: 'JNSIX Endurance Analytics API',
+    services: {
+      email: {
+        configured: email.configured,
+        provider: email.provider,
+        fromEmail: email.fromEmail,
+        keyPresentInEnv: email.keyPresentInEnv,
+        keyLength: email.keyLength,
+        keyPrefix: email.keyPrefix,
+      },
+    },
+  });
 });
 
 app.use('/api/auth', authRoutes);
@@ -127,6 +143,17 @@ initSocket(httpServer);
 httpServer.listen(PORT, () => {
   console.log(`JNSIX Endurance Analytics API running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  const emailStatus = emailService.getEmailStatus();
+  if (!emailStatus.configured) {
+    console.error(
+      `[Email Service] NOT CONFIGURED: BREVO_API_KEY missing or placeholder. ` +
+        `keyPresentInEnv=${emailStatus.keyPresentInEnv} cwd=${process.cwd()} envFile=../.env`
+    );
+  } else {
+    console.log(
+      `[Email Service] Brevo OK (sender: ${emailStatus.fromEmail}, key: ${emailStatus.keyPrefix}, len=${emailStatus.keyLength})`
+    );
+  }
 
   // Reanudar cola durable de sync (PENDING/RUNNING) tras reinicio
   const syncQueueService = require('./services/syncQueue.service');

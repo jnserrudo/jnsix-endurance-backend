@@ -3,11 +3,55 @@ const jwt = require('jsonwebtoken');
 const { APP_NAME } = require('../constants/brand');
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
-const API_KEY = process.env.BREVO_API_KEY;
-const FROM_EMAIL = process.env.FROM_EMAIL || 'jnserrudo@gmail.com';
-const FROM_NAME = process.env.FROM_NAME || APP_NAME;
+
+function cleanEnv(value) {
+  if (typeof value !== 'string') return '';
+  let v = value.trim();
+  // Quita comillas accidentales del .env: BREVO_API_KEY="xxx"
+  if (
+    (v.startsWith('"') && v.endsWith('"')) ||
+    (v.startsWith("'") && v.endsWith("'"))
+  ) {
+    v = v.slice(1, -1).trim();
+  }
+  return v;
+}
+
+function isPlaceholderKey(apiKey) {
+  if (!apiKey) return true;
+  const lower = apiKey.toLowerCase();
+  return (
+    lower.includes('your-brevo') ||
+    lower.includes('your_api') ||
+    lower === 'changeme' ||
+    lower === 'xxx'
+  );
+}
+
+const getEmailConfig = () => {
+  const apiKey = cleanEnv(process.env.BREVO_API_KEY);
+  return {
+    apiKey: isPlaceholderKey(apiKey) ? '' : apiKey,
+    fromEmail: cleanEnv(process.env.FROM_EMAIL) || 'jnserrudo@gmail.com',
+    fromName: cleanEnv(process.env.FROM_NAME) || APP_NAME,
+  };
+};
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const JWT_SECRET = process.env.JWT_SECRET;
+
+const getEmailStatus = () => {
+  const { apiKey, fromEmail } = getEmailConfig();
+  const rawPresent = Boolean(cleanEnv(process.env.BREVO_API_KEY));
+  return {
+    configured: Boolean(apiKey),
+    provider: 'brevo',
+    fromEmail,
+    // Diagnóstico seguro (no expone la key)
+    keyPresentInEnv: rawPresent,
+    keyLength: apiKey ? apiKey.length : 0,
+    keyPrefix: apiKey ? `${apiKey.slice(0, 8)}…` : null,
+  };
+};
 
 const generateUnsubscribeToken = (email) => {
   return jwt.sign({ email, purpose: 'unsubscribe' }, JWT_SECRET, { expiresIn: '30d' });
@@ -32,13 +76,18 @@ const sendEmail = async (to, subject, text, html, isMarketing = false) => {
 
   const finalHtml = isMarketing ? `${html}${generateMarketingFooter(to)}` : html;
 
-  if (!API_KEY) {
-    console.log(`[Email Service - SIMULATION] Email to: ${to} | Subject: ${subject}`);
-    return { success: true, simulated: true };
+  const { apiKey, fromEmail, fromName } = getEmailConfig();
+  if (!apiKey) {
+    const raw = cleanEnv(process.env.BREVO_API_KEY);
+    console.error(
+      `[Email Service - NOT SENT] BREVO_API_KEY unavailable. ` +
+        `rawPresent=${Boolean(raw)} rawLength=${raw.length} cwd=${process.cwd()} To: ${to}`
+    );
+    return { success: false, simulated: true, reason: 'EMAIL_NOT_CONFIGURED' };
   }
 
   const payload = {
-    sender: { name: FROM_NAME, email: FROM_EMAIL },
+    sender: { name: fromName, email: fromEmail },
     to: [{ email: to }],
     subject,
     htmlContent: finalHtml,
@@ -48,7 +97,7 @@ const sendEmail = async (to, subject, text, html, isMarketing = false) => {
   const response = await fetch(BREVO_API_URL, {
     method: 'POST',
     headers: {
-      'api-key': API_KEY,
+      'api-key': apiKey,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
@@ -175,6 +224,7 @@ const sendBusinessPendingEmail = async (email, businessName) => {
 };
 
 module.exports = {
+  getEmailStatus,
   sendEmail,
   sendVerificationOTP,
   sendResetPasswordEmail,

@@ -171,10 +171,12 @@ const register = async (req, res) => {
     });
     console.log('[SUCCESS] [REGISTER] Usuario creado exitosamente:', user.id);
 
-    // Send OTP email
+    // Send OTP email. Do not claim it was delivered when provider is disabled.
+    let verificationEmailSent = false;
     try {
       const nombre = user.email.split('@')[0];
-      await emailService.sendVerificationOTP(user.email, otpCode, nombre);
+      const delivery = await emailService.sendVerificationOTP(user.email, otpCode, nombre);
+      verificationEmailSent = delivery?.success !== false && !delivery?.simulated;
     } catch (mailErr) {
       console.error('[ERROR] [REGISTER] Error enviando email de verificación:', mailErr.message);
     }
@@ -195,10 +197,14 @@ const register = async (req, res) => {
         profileVisibility: user.profileVisibility,
         statsVisible: user.statsVisible,
         activitiesVisible: user.activitiesVisible,
-        createdAt: user.createdAt
+        createdAt: user.createdAt,
+        verificationEmailSent
       },
       token,
-      message: 'Registration successful. Please check your email to verify your account.'
+      verificationEmailSent,
+      message: verificationEmailSent
+        ? 'Cuenta creada. Revisá tu correo para verificarla.'
+        : 'Cuenta creada, pero no pudimos enviar el código de verificación.'
     });
   } catch (error) {
     console.error('[ERROR]', error);
@@ -695,14 +701,26 @@ const resendVerification = async (req, res) => {
       }
     });
 
+    let delivery;
     try {
       const nombre = user.email.split('@')[0];
-      await emailService.sendVerificationOTP(user.email, otpCode, nombre);
+      delivery = await emailService.sendVerificationOTP(user.email, otpCode, nombre);
     } catch (mailErr) {
       console.error('[ERROR] [RESEND_VERIFICATION] Error enviando email:', mailErr.message);
+      return res.status(502).json({
+        error: 'No pudimos enviar el correo en este momento. Intentá nuevamente más tarde.',
+        code: 'EMAIL_DELIVERY_FAILED'
+      });
     }
 
-    res.json({ message: 'Verification OTP sent' });
+    if (delivery?.simulated || delivery?.success === false) {
+      return res.status(503).json({
+        error: 'El servicio de correo todavía no está configurado. Contactá al administrador.',
+        code: 'EMAIL_NOT_CONFIGURED'
+      });
+    }
+
+    res.json({ message: 'Código de verificación enviado.', emailSent: true });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
