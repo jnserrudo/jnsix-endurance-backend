@@ -5,6 +5,7 @@ const stravaService = require('../services/strava.service');
 const emailService = require('../services/email.service');
 const pushService = require('../services/push.service');
 const prisma = require('../lib/prisma');
+const referralService = require('../services/referral.service');
 const { APP_NAME } = require('../constants/brand');
 
 const generateToken = (userId, email, role) => {
@@ -92,7 +93,7 @@ const verifyTotp = (secret, token, window = 1) => {
 const register = async (req, res) => {
   try {
     console.log('[INFO] [REGISTER] Intento de registro:', req.body.email);
-    const { email, password, username } = req.body;
+    const { email, password, username, referralCode } = req.body;
 
     const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
     if (!normalizedEmail || !password) {
@@ -152,13 +153,20 @@ const register = async (req, res) => {
     // La cuenta y su código se crean juntas: nunca debe quedar una cuenta
     // incompleta si falla la creación de la verificación.
     const user = await prisma.$transaction(async (tx) => {
+      const generatedReferralCode = await referralService.generateReferralCode(tx);
       const createdUser = await tx.user.create({
         data: {
           email: normalizedEmail,
           username: normalizedUsername,
           password: hashedPassword,
-          role: 'ATHLETE'
+          role: 'ATHLETE',
+          referralCode: generatedReferralCode,
         }
+      });
+      await referralService.attachReferralOnRegister({
+        inviteeId: createdUser.id,
+        referralCode,
+        client: tx,
       });
       await tx.emailVerification.create({
         data: {
@@ -197,6 +205,7 @@ const register = async (req, res) => {
         profileVisibility: user.profileVisibility,
         statsVisible: user.statsVisible,
         activitiesVisible: user.activitiesVisible,
+        referralCode: user.referralCode,
         createdAt: user.createdAt,
         verificationEmailSent
       },
@@ -208,6 +217,9 @@ const register = async (req, res) => {
     });
   } catch (error) {
     console.error('[ERROR]', error);
+    if (error instanceof referralService.ReferralValidationError) {
+      return res.status(400).json({ error: error.message, code: error.code });
+    }
     // Cubre carreras entre dos solicitudes simultáneas, además del chequeo previo.
     if (error?.code === 'P2002') {
       const target = Array.isArray(error.meta?.target)
@@ -570,6 +582,8 @@ const getCurrentUser = async (req, res) => {
         hrZones: true,
         paceZones: true,
         powerZones: true,
+        referralCode: true,
+        referredByUserId: true,
         userScore: {
           include: { currentRank: true }
         },

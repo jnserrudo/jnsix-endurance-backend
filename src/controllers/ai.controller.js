@@ -860,24 +860,30 @@ Markdown móvil: ## sin numerar, viñetas (-), párrafos breves. Sin emojis. Esp
 const listConversations = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { q } = req.query;
+    const { q, mode } = req.query;
     const search = (typeof q === 'string' ? q.trim() : '').toLowerCase();
+    const modeFilter = typeof mode === 'string' ? mode.trim().toLowerCase() : '';
 
-    const conversations = await prisma.aIConversation.findMany({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' },
-      // Con búsqueda traemos más registros para poder filtrar por contenido
-      // (los mensajes están en un campo JSON, no consultable directamente).
-      take: search ? 200 : 50,
-      select: {
-        id: true,
-        mode: true,
-        title: true,
-        messages: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    const [conversations, allCount, coachCount, chatCount] = await Promise.all([
+      prisma.aIConversation.findMany({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+        // Con búsqueda traemos más registros para poder filtrar por contenido
+        // (los mensajes están en un campo JSON, no consultable directamente).
+        take: search ? 200 : 100,
+        select: {
+          id: true,
+          mode: true,
+          title: true,
+          messages: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      prisma.aIConversation.count({ where: { userId } }),
+      prisma.aIConversation.count({ where: { userId, mode: { not: 'chat' } } }),
+      prisma.aIConversation.count({ where: { userId, mode: 'chat' } }),
+    ]);
 
     const mapped = conversations.map((c) => {
       const msgs = Array.isArray(c.messages) ? c.messages : [];
@@ -889,9 +895,10 @@ const listConversations = async (req, res) => {
       ]
         .join('\n')
         .toLowerCase();
+      const normalizedMode = c.mode === 'chat' ? 'chat' : 'coach';
       return {
         id: c.id,
-        mode: c.mode,
+        mode: normalizedMode,
         title,
         preview: last?.content ? String(last.content).slice(0, 120) : '',
         messageCount: msgs.length,
@@ -901,11 +908,23 @@ const listConversations = async (req, res) => {
       };
     });
 
-    const filtered = (search ? mapped.filter((c) => c._haystack.includes(search)) : mapped)
-      .slice(0, 50)
-      .map(({ _haystack, ...c }) => c);
+    let filtered = search ? mapped.filter((c) => c._haystack.includes(search)) : mapped;
+    if (modeFilter === 'chat') {
+      filtered = filtered.filter((c) => c.mode === 'chat');
+    } else if (modeFilter === 'coach') {
+      filtered = filtered.filter((c) => c.mode === 'coach');
+    }
 
-    res.json({ conversations: filtered });
+    const conversationsOut = filtered.slice(0, 50).map(({ _haystack, ...c }) => c);
+
+    res.json({
+      conversations: conversationsOut,
+      counts: {
+        all: allCount,
+        coach: coachCount,
+        chat: chatCount,
+      },
+    });
   } catch (error) {
     console.error('[ERROR] listConversations:', error);
     res.status(500).json({ error: 'Algo salió mal. Intentá de nuevo en unos minutos.' });

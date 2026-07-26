@@ -77,8 +77,8 @@ async function sendWeeklyDigest() {
       }
     }
 
-    const title = 'Resumen semanal';
-    const body = `Esta semana: ${km.toFixed(1)} km en ${activityCount} actividades · Racha ${streak} días. ${friendsRankTip}`;
+    const title = 'Tu resumen semanal está listo';
+    const body = `Metiste ${km.toFixed(1)} km en ${activityCount} actividades y llevás una racha de ${streak} días. ${friendsRankTip}`;
 
     try {
       await notify(userId, 'SYSTEM', {

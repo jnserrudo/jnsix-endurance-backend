@@ -3,6 +3,7 @@ const prisma = require('../lib/prisma');
 const stravaService = require('../services/strava.service');
 const scoringService = require('../services/scoring.service');
 const challengesService = require('../services/challenges.service');
+const referralService = require('../services/referral.service');
 
 const verifyStravaWebhook = async (req, res) => {
   const { 'hub.mode': mode, 'hub.verify_token': verifyToken, 'hub.challenge': challenge } = req.query;
@@ -151,6 +152,9 @@ const handleStravaWebhook = async (req, res) => {
 
       scoringService.awardActivityPoints(createdActivity.id).catch((err) => {
         console.error('[Scoring] Failed to award points from webhook:', err.message);
+      });
+      referralService.maybeRewardOnFirstActivity(user.id, createdActivity.id).catch((err) => {
+        console.error('[Referrals] Failed to reward first webhook activity:', err.message);
       });
 
       challengesService.updateChallengeProgress(user.id).catch((err) => {

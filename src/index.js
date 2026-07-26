@@ -42,6 +42,7 @@ const redemptionsRoutes = require('./routes/redemptions.routes');
 const reportsRoutes = require('./routes/reports.routes');
 const eventsRoutes = require('./routes/events.routes');
 const savedSessionsRoutes = require('./routes/savedSessions.routes');
+const referralsRoutes = require('./routes/referrals.routes');
 const authController = require('./controllers/auth.controller');
 const emailService = require('./services/email.service');
 const { auditContextMiddleware } = require('./services/audit.service');
@@ -94,6 +95,17 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.get('/invite/:code', (req, res) => {
+  const code = String(req.params.code || '').trim().toUpperCase();
+  const deepLink = `jnsix://invite/${encodeURIComponent(code)}`;
+  const acceptJson = req.accepts(['html', 'json']) === 'json';
+  if (acceptJson) return res.json({ referralCode: code, deepLink });
+  return res.type('html').send(`<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>JNSIX Endurance</title></head>
+<body><p>Abriendo invitación de JNSIX Endurance…</p><p><a href="${deepLink}">Abrir la app</a></p>
+<script>window.location.href=${JSON.stringify(deepLink)};</script></body></html>`);
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/activities', activitiesRoutes);
 app.use('/api/comparisons', comparisonsRoutes);
@@ -129,6 +141,7 @@ app.use('/api/redemptions', redemptionsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/events', eventsRoutes);
 app.use('/api/saved-sessions', savedSessionsRoutes);
+app.use('/api/referrals', referralsRoutes);
 
 
 // Ruta especial para callback de Strava (sin /api para compatibilidad con Strava)

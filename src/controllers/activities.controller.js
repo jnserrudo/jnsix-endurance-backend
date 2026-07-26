@@ -14,12 +14,22 @@ const prisma = require('../lib/prisma');
 const { calculateStreakFromDates } = require('../utils/streak');
 const { suggestPlanSessionMatch } = require('../services/planSessionMatching.service');
 const { checkAndNotifyTrainingLoad } = require('../services/trainingLoad.service');
+const referralService = require('../services/referral.service');
 
 async function safePlanSessionSuggestion(userId, activity) {
   try {
     return await suggestPlanSessionMatch(userId, activity);
   } catch (err) {
     console.error('[PlanSession] match suggestion failed:', err.message);
+    return null;
+  }
+}
+
+async function safeReferralReward(userId, activityId) {
+  try {
+    return await referralService.maybeRewardOnFirstActivity(userId, activityId);
+  } catch (err) {
+    console.error('[Referrals] Failed to process first activity:', err.message);
     return null;
   }
 }
@@ -343,6 +353,7 @@ const createActivity = async (req, res) => {
     });
 
     const scoring = await safeScoreActivity(userId, activity);
+    await safeReferralReward(userId, activity.id);
     const extras = await collectPostCreateExtras(userId, activity);
     extras.matchSuggestion = await safePlanSessionSuggestion(userId, activity);
 
@@ -411,6 +422,7 @@ const uploadActivity = async (req, res) => {
     });
 
     const scoring = await safeScoreActivity(userId, activity);
+    await safeReferralReward(userId, activity.id);
     const extras = await collectPostCreateExtras(userId, activity);
     res.status(201).json({ ...activity, scoring, ...extras });
   } catch (error) {
@@ -502,6 +514,7 @@ const importFromLink = async (req, res) => {
     });
 
     const scoring = await safeScoreActivity(userId, activity);
+    await safeReferralReward(userId, activity.id);
     const extras = await collectPostCreateExtras(userId, activity);
     res.status(201).json({ ...activity, scoring, ...extras });
   } catch (error) {
@@ -841,6 +854,12 @@ const syncStravaActivities = async (req, res) => {
       scoringService.batchScoreActivities(userId).catch((err) => {
         console.error('[Scoring] Failed to batch score synced activities:', err.message);
       });
+      const firstActivity = await prisma.activity.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      if (firstActivity) await safeReferralReward(userId, firstActivity.id);
 
       challengesService.updateChallengeProgress(userId).catch((err) => {
         console.error('[Challenges] Failed to update progress after sync:', err.message);
@@ -1154,7 +1173,7 @@ const syncHealthWorkouts = async (req, res) => {
         continue;
       }
 
-      await prisma.activity.create({
+      const activity = await prisma.activity.create({
         data: {
           user: { connect: { id: userId } },
           name: w.name,
@@ -1170,6 +1189,7 @@ const syncHealthWorkouts = async (req, res) => {
           stravaId: externalId ? String(externalId) : null,
         }
       });
+      await safeReferralReward(userId, activity.id);
 
       count++;
     }
@@ -1625,6 +1645,7 @@ const createManualActivity = async (req, res) => {
     });
 
     const scoring = await safeScoreActivity(userId, activity);
+    await safeReferralReward(userId, activity.id);
 
     if (rpe) {
       await prisma.effortLog.create({

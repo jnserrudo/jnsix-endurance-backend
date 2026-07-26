@@ -54,7 +54,10 @@ const getBusinessById = async (req, res) => {
     });
 
     if (!business) return res.status(404).json({ error: 'Negocio no encontrado' });
-    res.json(business);
+    const checkInsTotal = await prisma.businessCheckIn.count({
+      where: { businessId: business.id }
+    });
+    res.json({ ...business, checkInsTotal });
   } catch (error) {
     console.error('[ERROR] getBusinessById:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -319,34 +322,96 @@ const getMyAnalytics = async (req, res) => {
     const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
     if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
 
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
+    const requestedDays = Number.parseInt(req.query.days, 10);
+    const periodDays = requestedDays === 30 ? 30 : 7;
+    const periodStart = new Date();
+    periodStart.setHours(0, 0, 0, 0);
+    periodStart.setDate(periodStart.getDate() - (periodDays - 1));
 
-    const [redemptionsThisWeek, uniqueAthletes, checkInsThisWeek] = await Promise.all([
-      prisma.redemption.count({
-        where: {
-          businessId: business.id,
-          createdAt: { gte: weekAgo }
-        }
+    const [redemptions, checkIns, priorRedemptionAthletes, priorCheckInAthletes] = await Promise.all([
+      prisma.redemption.findMany({
+        where: { businessId: business.id, createdAt: { gte: periodStart } },
+        select: { userId: true, rewardId: true, pointsSpent: true, createdAt: true, reward: { select: { title: true } } }
+      }),
+      prisma.businessCheckIn.findMany({
+        where: { businessId: business.id, createdAt: { gte: periodStart } },
+        select: { userId: true, createdAt: true }
       }),
       prisma.redemption.findMany({
-        where: { businessId: business.id },
+        where: { businessId: business.id, createdAt: { lt: periodStart } },
         select: { userId: true },
         distinct: ['userId']
       }),
-      prisma.businessCheckIn.count({
-        where: {
-          businessId: business.id,
-          createdAt: { gte: weekAgo }
-        }
+      prisma.businessCheckIn.findMany({
+        where: { businessId: business.id, createdAt: { lt: periodStart } },
+        select: { userId: true },
+        distinct: ['userId']
       })
     ]);
 
+    const dateKey = (date) => {
+      const offset = date.getTimezoneOffset() * 60_000;
+      return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+    };
+    const dailyByDate = new Map();
+    for (let index = 0; index < periodDays; index += 1) {
+      const date = new Date(periodStart);
+      date.setDate(periodStart.getDate() + index);
+      dailyByDate.set(dateKey(date), { date: dateKey(date), redemptions: 0, checkIns: 0, pointsGranted: 0 });
+    }
+    redemptions.forEach((redemption) => {
+      const day = dailyByDate.get(dateKey(redemption.createdAt));
+      if (day) day.redemptions += 1;
+    });
+    checkIns.forEach((checkInRow) => {
+      const day = dailyByDate.get(dateKey(checkInRow.createdAt));
+      if (day) {
+        day.checkIns += 1;
+        day.pointsGranted += CHECK_IN_POINTS;
+      }
+    });
+
+    const athleteIds = new Set([
+      ...redemptions.map((redemption) => redemption.userId),
+      ...checkIns.map((checkInRow) => checkInRow.userId)
+    ]);
+    const returningAthleteIds = new Set([
+      ...priorRedemptionAthletes.map((athlete) => athlete.userId),
+      ...priorCheckInAthletes.map((athlete) => athlete.userId)
+    ]);
+    const rewardCounts = new Map();
+    redemptions.forEach((redemption) => {
+      const current = rewardCounts.get(redemption.rewardId) || {
+        id: redemption.rewardId,
+        title: redemption.reward.title,
+        redemptionCount: 0
+      };
+      current.redemptionCount += 1;
+      rewardCounts.set(redemption.rewardId, current);
+    });
+
+    const redemptionsThisPeriod = redemptions.length;
+    const checkInsThisPeriod = checkIns.length;
+    const pointsGranted = checkInsThisPeriod * CHECK_IN_POINTS;
+
     res.json({
-      redemptionsThisWeek,
-      uniqueAthletes: uniqueAthletes.length,
-      checkInsThisWeek,
-      periodDays: 7
+      periodDays,
+      periodStart: periodStart.toISOString(),
+      dailySeries: Array.from(dailyByDate.values()),
+      redemptionsThisPeriod,
+      uniqueAthletes: athleteIds.size,
+      checkInsThisPeriod,
+      pointsGranted,
+      topRewards: Array.from(rewardCounts.values())
+        .sort((a, b) => b.redemptionCount - a.redemptionCount)
+        .slice(0, 5),
+      newVsReturning: {
+        newAthletes: Array.from(athleteIds).filter((id) => !returningAthleteIds.has(id)).length,
+        returningAthletes: Array.from(athleteIds).filter((id) => returningAthleteIds.has(id)).length
+      },
+      // Campos legacy para clientes que todavía muestran la semana.
+      redemptionsThisWeek: periodDays === 7 ? redemptionsThisPeriod : undefined,
+      checkInsThisWeek: periodDays === 7 ? checkInsThisPeriod : undefined
     });
   } catch (error) {
     console.error('[ERROR] getMyAnalytics:', error);
