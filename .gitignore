@@ -84,7 +84,10 @@ scripts/
 docs/
 backups/
 
-# Database dump artifacts (do NOT use bare *.sql — Prisma migrations need .sql)
+# Prisma migrations: el esquema se aplica con `npm run prisma:push`
+prisma/migrations/
+
+# Database dump artifacts
 *.sql.gz
 *.dump
 **/backup*.sql

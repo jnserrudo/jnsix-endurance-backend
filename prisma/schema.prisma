@@ -118,6 +118,7 @@ model User {
   duelsAsChallenger Duel[]               @relation("DuelChallenger")
   duelsAsOpponent   Duel[]               @relation("DuelOpponent")
   aiConversations   AIConversation[]
+  activityOcrAttempts ActivityOcrAttempt[]
   savedSessions     SavedSession[]
   liveChallengeParts LiveChallengeParticipant[]
   syncJobs          SyncJob[]
@@ -1678,6 +1679,26 @@ model AIConversation {
 
   @@index([userId])
   @@map("ai_conversations")
+}
+
+model ActivityOcrAttempt {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  sourceApp  String?  @map("source_app")
+  confidence Float    @default(0)
+  status     String   @default("parsed") // parsed | accepted | rejected
+  imageUrl   String?  @map("image_url")
+  draft      Json?
+  rawResponse Json?   @map("raw_response")
+  activityId String?  @map("activity_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("activity_ocr_attempts")
 }
 
 model SavedSession {

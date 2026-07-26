@@ -3,6 +3,7 @@ const router = express.Router();
 const activitiesController = require('../controllers/activities.controller');
 const { authenticateToken } = require('../middleware/auth.middleware');
 const { uploadActivityFile, uploadImage } = require('../middleware/upload.middleware');
+const { checkPlanLimit } = require('../middleware/plan-enforcement.middleware');
 
 
 router.get('/shared/:token', activitiesController.getSharedActivity);
@@ -19,6 +20,13 @@ router.post('/sync/health', activitiesController.syncHealthWorkouts);
 router.post('/sync-job', activitiesController.createSyncJob);
 router.get('/sync-job/:jobId', activitiesController.getSyncJobStatus);
 router.get('/check-new', activitiesController.checkNewActivities);
+router.post(
+  '/ocr-parse',
+  checkPlanLimit('ai_coach.daily_limit'),
+  uploadImage.single('image'),
+  activitiesController.parseActivityOcr
+);
+router.post('/check-duplicates', activitiesController.checkActivityDuplicates);
 router.get('/:id/ghost', activitiesController.getGhostComparison);
 router.get('/:id', activitiesController.getActivityById);
 router.post('/', activitiesController.createActivity);

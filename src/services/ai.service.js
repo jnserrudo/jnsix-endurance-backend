@@ -6,33 +6,45 @@ class AIService {
   constructor() {
     this.provider = process.env.AI_PROVIDER || 'openai';
     console.log('AI Provider configured:', this.provider);
-    
-    if (this.provider === 'openai' && process.env.OPENAI_API_KEY) {
+
+    // Clientes por API key presente (texto + visión). El provider activo
+    // define el modelo de chat; la visión usa GROQ_VISION_MODEL / etc.
+    if (process.env.OPENAI_API_KEY) {
       this.openai = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY
       });
-      this.model = process.env.OPENAI_MODEL || 'gpt-4-turbo-preview';
-      console.log('OpenAI initialized with model:', this.model);
     }
-    
-    if (this.provider === 'anthropic' && process.env.ANTHROPIC_API_KEY) {
+
+    if (process.env.ANTHROPIC_API_KEY) {
       this.anthropic = new Anthropic({
         apiKey: process.env.ANTHROPIC_API_KEY
       });
-      this.model = process.env.ANTHROPIC_MODEL || 'claude-3-sonnet-20240229';
-      console.log('Anthropic initialized with model:', this.model);
     }
-    
-    if (this.provider === 'groq' && process.env.GROQ_API_KEY) {
+
+    if (process.env.GROQ_API_KEY) {
       this.groq = new Groq({
         apiKey: process.env.GROQ_API_KEY
       });
+    }
+
+    if (this.provider === 'openai' && this.openai) {
+      this.model = process.env.OPENAI_MODEL || 'gpt-4-turbo-preview';
+      console.log('OpenAI initialized with model:', this.model);
+    } else if (this.provider === 'anthropic' && this.anthropic) {
+      this.model = process.env.ANTHROPIC_MODEL || 'claude-3-sonnet-20240229';
+      console.log('Anthropic initialized with model:', this.model);
+    } else if (this.provider === 'groq' && this.groq) {
       this.model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
       console.log('Groq initialized with model:', this.model);
     }
-    
+
     if (!this.openai && !this.anthropic && !this.groq) {
       console.error('No AI provider initialized. Check environment variables.');
+    } else if (this.groq) {
+      console.log(
+        'Groq vision OCR model:',
+        process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'
+      );
     }
   }
 
@@ -427,6 +439,193 @@ Responde SOLO el JSON.`;
       console.error('Error parsing AI training plan JSON:', e);
       throw new Error('AI returned invalid format');
     }
+  }
+
+  /**
+   * Vision OCR: prioriza el mismo provider del Coach (Groq gratis con modelo multimodal).
+   * Fallback opcional a OpenAI/Anthropic solo si están configurados.
+   */
+  isVisionAvailable() {
+    return Boolean(this.groq || this.openai || this.anthropic);
+  }
+
+  getVisionStatus() {
+    // Preferir el AI_PROVIDER activo cuando tiene cliente (mismo stack que el Coach).
+    if (this.provider === 'groq' && this.groq) {
+      return {
+        available: true,
+        provider: 'groq',
+        model:
+          process.env.GROQ_VISION_MODEL ||
+          'meta-llama/llama-4-scout-17b-16e-instruct',
+      };
+    }
+    if (this.provider === 'openai' && this.openai) {
+      return {
+        available: true,
+        provider: 'openai',
+        model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o',
+      };
+    }
+    if (this.provider === 'anthropic' && this.anthropic) {
+      return {
+        available: true,
+        provider: 'anthropic',
+        model:
+          process.env.ANTHROPIC_VISION_MODEL ||
+          process.env.ANTHROPIC_MODEL ||
+          'claude-3-5-sonnet-20241022',
+      };
+    }
+    // Si el provider de texto no tiene visión, usar cualquier cliente con visión.
+    if (this.groq) {
+      return {
+        available: true,
+        provider: 'groq',
+        model:
+          process.env.GROQ_VISION_MODEL ||
+          'meta-llama/llama-4-scout-17b-16e-instruct',
+      };
+    }
+    if (this.openai) {
+      return {
+        available: true,
+        provider: 'openai',
+        model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o',
+      };
+    }
+    if (this.anthropic) {
+      return {
+        available: true,
+        provider: 'anthropic',
+        model:
+          process.env.ANTHROPIC_VISION_MODEL ||
+          process.env.ANTHROPIC_MODEL ||
+          'claude-3-5-sonnet-20241022',
+      };
+    }
+    return { available: false, provider: null, model: null };
+  }
+
+  /**
+   * @param {string} base64Image - raw base64 without data: prefix
+   * @param {string} mimeType
+   * @param {string} prompt
+   * @param {number} maxTokens
+   */
+  async analyzeImage(base64Image, mimeType = 'image/jpeg', prompt, maxTokens = 1200) {
+    const status = this.getVisionStatus();
+    if (!status.available) {
+      const err = new Error(
+        'OCR no configurado. Con Groq necesitás GROQ_API_KEY y un modelo con visión (GROQ_VISION_MODEL).'
+      );
+      err.code = 'VISION_UNAVAILABLE';
+      throw err;
+    }
+
+    const systemPrompt =
+      'Sos un extractor de métricas deportivas. Respondé SOLO con JSON válido, sin markdown ni texto extra.';
+    const userContent = [
+      { type: 'text', text: prompt },
+      {
+        type: 'image_url',
+        image_url: {
+          url: `data:${mimeType};base64,${base64Image}`,
+        },
+      },
+    ];
+
+    if (status.provider === 'groq') {
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ];
+
+      let response;
+      try {
+        response = await this.groq.chat.completions.create({
+          model: status.model,
+          messages,
+          temperature: 0.1,
+          max_tokens: maxTokens,
+          response_format: { type: 'json_object' },
+        });
+      } catch (error) {
+        // Algunos modelos Groq no aceptan response_format o el id cambió.
+        console.warn('[Vision] Groq JSON mode/retry:', error.message);
+        response = await this.groq.chat.completions.create({
+          model: status.model,
+          messages,
+          temperature: 0.1,
+          max_tokens: maxTokens,
+        });
+      }
+
+      return {
+        response: response.choices[0].message.content,
+        tokensUsed: response.usage?.total_tokens || 0,
+        model: status.model,
+      };
+    }
+
+    if (status.provider === 'openai') {
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ];
+
+      let response;
+      try {
+        response = await this.openai.chat.completions.create({
+          model: status.model,
+          messages,
+          temperature: 0.1,
+          max_tokens: maxTokens,
+          response_format: { type: 'json_object' },
+        });
+      } catch (error) {
+        response = await this.openai.chat.completions.create({
+          model: status.model,
+          messages,
+          temperature: 0.1,
+          max_tokens: maxTokens,
+        });
+      }
+
+      return {
+        response: response.choices[0].message.content,
+        tokensUsed: response.usage?.total_tokens || 0,
+        model: status.model,
+      };
+    }
+
+    const response = await this.anthropic.messages.create({
+      model: status.model,
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: mimeType,
+                data: base64Image,
+              },
+            },
+            { type: 'text', text: prompt },
+          ],
+        },
+      ],
+    });
+
+    return {
+      response: response.content[0].text,
+      tokensUsed: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
+      model: status.model,
+    };
   }
 }
 

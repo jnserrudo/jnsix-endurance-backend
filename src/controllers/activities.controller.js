@@ -15,6 +15,9 @@ const { calculateStreakFromDates } = require('../utils/streak');
 const { suggestPlanSessionMatch } = require('../services/planSessionMatching.service');
 const { checkAndNotifyTrainingLoad } = require('../services/trainingLoad.service');
 const referralService = require('../services/referral.service');
+const activityOcrService = require('../services/activityOcr.service');
+const aiService = require('../services/ai.service');
+const fs = require('fs');
 
 async function safePlanSessionSuggestion(userId, activity) {
   try {
@@ -1549,7 +1552,7 @@ const createManualActivity = async (req, res) => {
       name, type, distanceKm, elevationM, movingTime, elapsedTime,
       startDate, description, averageHr, maxHr, calories, cadence,
       coordinates, mapPolyline, visibility, laps, extraFields,
-      rpe, feeling, notes
+      rpe, feeling, notes, ocrAttemptId
     } = req.body;
 
     if (!name || !type || !startDate) {
@@ -1647,6 +1650,12 @@ const createManualActivity = async (req, res) => {
     const scoring = await safeScoreActivity(userId, activity);
     await safeReferralReward(userId, activity.id);
 
+    if (ocrAttemptId) {
+      await activityOcrService.markAttemptAccepted(ocrAttemptId, userId, activity.id).catch((err) => {
+        console.warn('[CREATE MANUAL] OCR attempt mark failed:', err.message);
+      });
+    }
+
     if (rpe) {
       await prisma.effortLog.create({
         data: {
@@ -1741,6 +1750,97 @@ const deleteActivityPhoto = async (req, res) => {
   }
 };
 
+const parseActivityOcr = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const sourceHint = typeof req.body?.sourceHint === 'string' ? req.body.sourceHint.toLowerCase() : undefined;
+
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'Subí una captura de pantalla (jpeg, png o webp).',
+        code: 'OCR_IMAGE_REQUIRED',
+      });
+    }
+
+    if (!aiService.isVisionAvailable()) {
+      return res.status(503).json({
+        error:
+          'OCR no configurado. Usá el mismo Groq del Coach: GROQ_API_KEY + GROQ_VISION_MODEL (modelo multimodal, no el de solo texto).',
+        code: 'VISION_UNAVAILABLE',
+        vision: aiService.getVisionStatus(),
+      });
+    }
+
+    const imageUrl = `/uploads/${req.file.filename}`;
+    const absolutePath = req.file.path;
+    const mimeType = req.file.mimetype || 'image/jpeg';
+    const imageBuffer = fs.readFileSync(absolutePath);
+
+    const result = await activityOcrService.parseActivityScreenshot({
+      userId,
+      imageBuffer,
+      mimeType,
+      sourceHint,
+      imageUrl,
+    });
+
+    const duplicates = await activityOcrService.findLikelyDuplicates(userId, {
+      type: result.draft.type,
+      distanceKm: result.draft.distanceKm,
+      startDate: result.draft.startDate,
+    });
+
+    return res.json({
+      ...result,
+      possibleDuplicates: duplicates,
+    });
+  } catch (error) {
+    console.error('[ERROR] parseActivityOcr:', error.message);
+    if (error.code === 'OCR_DAILY_LIMIT') {
+      return res.status(429).json({
+        error: error.message,
+        code: error.code,
+        used: error.used,
+        limit: error.limit,
+      });
+    }
+    if (error.code === 'VISION_UNAVAILABLE') {
+      return res.status(503).json({ error: error.message, code: error.code });
+    }
+    if (error.code === 'OCR_PARSE_FAILED' || error.code === 'OCR_INVALID_JSON') {
+      return res.status(422).json({ error: error.message, code: error.code });
+    }
+    return res.status(500).json({ error: 'No pudimos analizar la captura. Intentá de nuevo.' });
+  }
+};
+
+const checkActivityDuplicates = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { type, distanceKm, startDate } = req.body || {};
+    if (!type || distanceKm == null || !startDate) {
+      return res.status(400).json({
+        error: 'Indicá tipo, distancia y fecha para buscar duplicados.',
+      });
+    }
+    const duplicates = await activityOcrService.findLikelyDuplicates(userId, {
+      type,
+      distanceKm,
+      startDate,
+    });
+    res.json({
+      duplicates,
+      notice:
+        duplicates.length > 0
+          ? 'Puede ser un duplicado de una actividad que ya cargaste ese día (±2% distancia).'
+          : null,
+    });
+  } catch (error) {
+    console.error('[ERROR] checkActivityDuplicates:', error.message);
+    res.status(500).json({ error: 'No pudimos verificar duplicados.' });
+  }
+};
+
 module.exports = {
   getActivities,
   getActivityById,
@@ -1762,5 +1862,7 @@ module.exports = {
   getSyncJobStatus,
   updateActivity,
   deleteActivity,
-  getDashboardMetrics
+  getDashboardMetrics,
+  parseActivityOcr,
+  checkActivityDuplicates,
 };
