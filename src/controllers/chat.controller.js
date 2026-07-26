@@ -371,10 +371,7 @@ const sendMessage = async (req, res) => {
     let { content, mediaUrl, mediaType, activityId } = req.body;
 
     if (req.file) {
-      const backendUrl = process.env.BACKEND_URL || '';
-      mediaUrl = backendUrl
-        ? `${backendUrl}/uploads/${req.file.filename}`
-        : `/uploads/${req.file.filename}`;
+      mediaUrl = `/uploads/${req.file.filename}`;
       mediaType = mediaType || 'IMAGE';
     }
 

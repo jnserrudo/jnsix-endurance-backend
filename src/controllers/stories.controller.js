@@ -7,8 +7,8 @@ const createStory = async (req, res) => {
     let { mediaUrl, mediaType, caption, activityId } = req.body;
 
     if (req.file) {
-      const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
-      mediaUrl = `${backendUrl}/uploads/${req.file.filename}`;
+      // Siempre relativo: el cliente resuelve el host actual.
+      mediaUrl = `/uploads/${req.file.filename}`;
       const mime = req.file.mimetype || '';
       const inferred = mime.startsWith('video/') ? 'VIDEO' : 'IMAGE';
       mediaType = (mediaType || inferred).toUpperCase();

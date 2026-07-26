@@ -193,8 +193,8 @@ const createPost = async (req, res) => {
 
     let imageUrl = null;
     if (req.file) {
-      const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
-      imageUrl = `${backendUrl}/uploads/${req.file.filename}`;
+      // Siempre relativo: el cliente resuelve el host (evita localhost/BACKEND_URL mal seteado).
+      imageUrl = `/uploads/${req.file.filename}`;
     }
 
     const post = await prisma.post.create({
