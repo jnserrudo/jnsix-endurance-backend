@@ -1,9 +1,16 @@
 /**
- * CLI local one-shot (gitignored). Reexporta el catálogo de src/.
- * Uso: node seed_badges.js
+ * Compatibilidad VPS / CLI. El código nuevo usa src/data/defaultBadges.js.
+ * Si el servidor aún tiene un gamification.service viejo que pide
+ * require('../../seed_badges'), este archivo evita el crash MODULE_NOT_FOUND.
+ *
+ * Uso CLI: node seed_badges.js
  */
 const { PrismaClient } = require('@prisma/client');
-const { seedBadges, ensureBadgesExist, DEFAULT_BADGES } = require('./src/data/defaultBadges');
+const {
+  seedBadges,
+  ensureBadgesExist,
+  DEFAULT_BADGES,
+} = require('./src/data/defaultBadges');
 
 const prisma = new PrismaClient();
 

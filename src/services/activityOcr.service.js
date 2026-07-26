@@ -51,13 +51,27 @@ const TYPE_ALIASES = {
 
 const SOURCE_APPS = new Set(['strava', 'garmin', 'coros', 'apple', 'suunto', 'polar', 'other']);
 
+function stripModelThinking(raw) {
+  let text = String(raw || '');
+  // Qwen y similares envuelven razonamiento en tags XML (a veces sin cerrar).
+  text = text.replace(
+    /<\s*(think|thinking|reasoning|redacted_thinking)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
+    ''
+  );
+  text = text.replace(
+    /<\s*(think|thinking|reasoning|redacted_thinking)[^>]*>[\s\S]*$/gi,
+    ''
+  );
+  return text.trim();
+}
+
 function stripJsonFence(raw) {
-  const text = String(raw || '').trim();
-  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-  const first = cleaned.indexOf('{');
-  const last = cleaned.lastIndexOf('}');
-  if (first >= 0 && last > first) return cleaned.slice(first, last + 1);
-  return cleaned;
+  let text = stripModelThinking(raw);
+  text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first >= 0 && last > first) return text.slice(first, last + 1);
+  return text;
 }
 
 function toNumber(value) {
@@ -144,7 +158,12 @@ function buildPrompt(sourceHint) {
 
 Extraé SOLO datos visibles. No inventes GPS ni splits. Si un dato no aparece, usá null.
 
-Respondé SOLO este JSON:
+REGLAS DE RESPUESTA (obligatorias):
+- Respondé ÚNICAMENTE un objeto JSON válido.
+- PROHIBIDO texto, markdown, explicaciones o bloques de pensamiento.
+- Empezá con { y terminá con }.
+
+JSON exacto:
 {
   "name": string|null,
   "type": "RUN"|"TRAIL_RUN"|"RIDE"|"VIRTUAL_RUN"|"VIRTUAL_RIDE"|"SWIM"|"HIKE"|"WALK"|"OTHER"|null,
@@ -330,7 +349,7 @@ async function parseActivityScreenshot({
 
   let aiResult;
   try {
-    aiResult = await aiService.analyzeImage(base64, mimeType, prompt, 1400);
+    aiResult = await aiService.analyzeImage(base64, mimeType, prompt, 2200);
   } catch (error) {
     if (error.code === 'VISION_UNAVAILABLE' || error.code === 'OCR_PROVIDER_BUSY') throw error;
     const msg = String(error.message || '');

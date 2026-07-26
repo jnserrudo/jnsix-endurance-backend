@@ -591,9 +591,42 @@ Responde SOLO el JSON.`;
     );
   }
 
+  sanitizeVisionContent(content) {
+    let text = String(content || '');
+    text = text.replace(
+      /<\s*(think|thinking|reasoning|redacted_thinking)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
+      ''
+    );
+    text = text.replace(
+      /<\s*(think|thinking|reasoning|redacted_thinking)[^>]*>[\s\S]*$/gi,
+      ''
+    );
+    return text.trim();
+  }
+
   async createGroqVisionCompletion(model, messages, maxTokens) {
     // Evitar response_format json_object en visión: Qwen a veces responde
     // json_validate_failed con failed_generation vacío. Pedimos JSON por prompt.
+    const normalize = (response) => {
+      const choice = response?.choices?.[0]?.message;
+      if (choice && typeof choice.content === 'string') {
+        choice.content = this.sanitizeVisionContent(choice.content);
+      }
+      const content = choice?.content;
+      if (!content || !String(content).trim()) {
+        const err = new Error('Vision model returned empty content');
+        err.code = 'OCR_EMPTY_RESPONSE';
+        throw err;
+      }
+      // Si después de limpiar thinking no hay JSON, forzar reintento
+      if (!content.includes('{')) {
+        const err = new Error('Vision model returned no JSON object');
+        err.code = 'OCR_EMPTY_RESPONSE';
+        throw err;
+      }
+      return response;
+    };
+
     try {
       const response = await this.groq.chat.completions.create({
         model,
@@ -601,13 +634,7 @@ Responde SOLO el JSON.`;
         temperature: 0.1,
         max_tokens: maxTokens,
       });
-      const content = response?.choices?.[0]?.message?.content;
-      if (!content || !String(content).trim()) {
-        const err = new Error('Vision model returned empty content');
-        err.code = 'OCR_EMPTY_RESPONSE';
-        throw err;
-      }
-      return response;
+      return normalize(response);
     } catch (error) {
       if (this.isModelUnavailableError(error) || this.isVisionUnsupportedError(error)) {
         throw error;
@@ -621,19 +648,13 @@ Responde SOLO el JSON.`;
             {
               role: 'user',
               content:
-                'Respondé ÚNICAMENTE un objeto JSON válido en una sola línea, sin markdown.',
+                'Respondé ÚNICAMENTE un objeto JSON válido empezando con {. Sin pensamiento ni markdown.',
             },
           ],
           temperature: 0,
           max_tokens: maxTokens,
         });
-        const content = response?.choices?.[0]?.message?.content;
-        if (!content || !String(content).trim()) {
-          const err = new Error('Vision model returned empty content');
-          err.code = 'OCR_EMPTY_RESPONSE';
-          throw err;
-        }
-        return response;
+        return normalize(response);
       }
       throw error;
     }
@@ -656,7 +677,7 @@ Responde SOLO el JSON.`;
     }
 
     const systemPrompt =
-      'Sos un extractor de métricas deportivas. Respondé SOLO con JSON válido, sin markdown ni texto extra.';
+      'Sos un extractor de métricas deportivas. Respondé SOLO con un objeto JSON válido. Prohibido markdown, texto extra o bloques de pensamiento.';
     const userContent = [
       { type: 'text', text: prompt },
       {
