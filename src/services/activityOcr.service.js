@@ -248,8 +248,12 @@ function validateAndNormalize(parsed) {
   const draft = {
     name: parsed.name ? String(parsed.name).slice(0, 120) : 'Actividad importada',
     type,
-    distanceKm: distanceKm != null && distanceKm >= 0 && distanceKm <= 500 ? distanceKm : null,
-    elevationM: elevationM >= 0 && elevationM <= 20000 ? elevationM : 0,
+    distanceKm:
+      distanceKm != null && distanceKm >= 0 && distanceKm <= 500
+        ? Math.round(distanceKm * 100) / 100
+        : null,
+    elevationM:
+      elevationM >= 0 && elevationM <= 20000 ? Math.round(elevationM * 10) / 10 : 0,
     movingTime: movingTimeSec,
     startDate,
     averageHr:

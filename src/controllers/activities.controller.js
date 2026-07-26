@@ -396,9 +396,9 @@ const uploadActivity = async (req, res) => {
         userId,
         name: parsedData.name,
         type: parsedData.type,
-        distanceKm: parsedData.distanceKm,
-        elevationM: parsedData.elevationM,
-        movingTime: parsedData.movingTime,
+        distanceKm: Math.round((Number(parsedData.distanceKm) || 0) * 100) / 100,
+        elevationM: Math.round((Number(parsedData.elevationM) || 0) * 10) / 10,
+        movingTime: Math.round(Number(parsedData.movingTime) || 0),
         startDate: parsedData.startDate,
         averageHr: parsedData.averageHr,
         maxHr: parsedData.maxHr,
@@ -1574,9 +1574,9 @@ const createManualActivity = async (req, res) => {
       console.warn('[CREATE ACTIVITY] Warning: Error al parsear coordinates/mapPolyline', err.message);
     }
 
-    const dist = parseFloat(distanceKm) || 0;
+    const dist = Math.round((parseFloat(distanceKm) || 0) * 100) / 100;
     const moveSecs = parseInt(movingTime, 10) || 0;
-    const elev = parseFloat(elevationM) || 0;
+    const elev = Math.round((parseFloat(elevationM) || 0) * 10) / 10;
     let lapsToCreate = Array.isArray(laps) && laps.length > 0
       ? laps.map((lap, index) => ({
           splitNum: lap.splitNum || index + 1,

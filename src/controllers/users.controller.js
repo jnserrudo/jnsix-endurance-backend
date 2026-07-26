@@ -77,7 +77,7 @@ const getMyProfile = async (req, res) => {
 
     res.json({
       ...user,
-      totalDistance: activityStats._sum.distanceKm || 0,
+      totalDistance: Math.round((activityStats._sum.distanceKm || 0) * 10) / 10,
       totalTime: activityStats._sum.movingTime || 0
     });
   } catch (error) {
