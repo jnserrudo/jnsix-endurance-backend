@@ -318,7 +318,7 @@ async function parseActivityScreenshot({
 }) {
   if (!aiService.isVisionAvailable()) {
     const err = new Error(
-      'OCR no configurado. Con Groq necesitás GROQ_API_KEY y GROQ_VISION_MODEL (modelo con visión, ej. meta-llama/llama-4-scout-17b-16e-instruct).'
+      'OCR no configurado. Con Groq necesitás GROQ_API_KEY y GROQ_VISION_MODEL (modelo con visión, ej. qwen/qwen3.6-27b).'
     );
     err.code = 'VISION_UNAVAILABLE';
     throw err;
@@ -332,12 +332,24 @@ async function parseActivityScreenshot({
   try {
     aiResult = await aiService.analyzeImage(base64, mimeType, prompt, 1400);
   } catch (error) {
-    if (error.code === 'VISION_UNAVAILABLE') throw error;
-    const err = new Error(
-      error.message?.includes('vision') || error.status === 404
-        ? 'El modelo de IA no soporta imágenes. Con Groq usá GROQ_VISION_MODEL=meta-llama/llama-4-scout-17b-16e-instruct (u otro multimodal de Groq).'
-        : 'No pudimos leer la captura. Probá con otra foto más nítida.'
-    );
+    if (error.code === 'VISION_UNAVAILABLE' || error.code === 'OCR_PROVIDER_BUSY') throw error;
+    const msg = String(error.message || '');
+    const lower = msg.toLowerCase();
+    let friendly =
+      'No pudimos leer la captura. Probá con otra foto más nítida (JPG/PNG).';
+    if (lower.includes('over capacity') || error.status === 503 || error.status === 429) {
+      friendly = 'El servicio de IA está saturado ahora. Esperá un minuto y reintentá.';
+    } else if (
+      lower.includes('does not support image') ||
+      lower.includes('must be a string')
+    ) {
+      friendly =
+        'El modelo de chat no lee imágenes. En el servidor usá GROQ_VISION_MODEL=qwen/qwen3.6-27b';
+    } else if (lower.includes('model_not_found') || lower.includes('does not exist')) {
+      friendly =
+        'El modelo de visión no está disponible en tu cuenta Groq. Usá GROQ_VISION_MODEL=qwen/qwen3.6-27b';
+    }
+    const err = new Error(friendly);
     err.code = 'OCR_PARSE_FAILED';
     err.cause = error;
     throw err;

@@ -1807,6 +1807,9 @@ const parseActivityOcr = async (req, res) => {
     if (error.code === 'VISION_UNAVAILABLE') {
       return res.status(503).json({ error: error.message, code: error.code });
     }
+    if (error.code === 'OCR_PROVIDER_BUSY') {
+      return res.status(503).json({ error: error.message, code: error.code });
+    }
     if (error.code === 'OCR_PARSE_FAILED' || error.code === 'OCR_INVALID_JSON') {
       return res.status(422).json({ error: error.message, code: error.code });
     }

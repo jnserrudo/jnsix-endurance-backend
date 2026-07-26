@@ -41,11 +41,49 @@ class AIService {
     if (!this.openai && !this.anthropic && !this.groq) {
       console.error('No AI provider initialized. Check environment variables.');
     } else if (this.groq) {
-      console.log(
-        'Groq vision OCR model:',
-        process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'
-      );
+      console.log('Groq vision OCR model:', this.getGroqVisionModelCandidates()[0]);
     }
+  }
+
+  /** Quita comillas accidentales del .env */
+  sanitizeModelId(value) {
+    return String(value || '')
+      .trim()
+      .replace(/^["']|["']$/g, '');
+  }
+
+  /**
+   * Modelos multimodal conocidos en Groq (orden preferido).
+   * En cuentas free a veces Scout no está habilitado; qwen/qwen3.6-27b sí.
+   */
+  getGroqVisionModelCandidates() {
+    const configured = this.sanitizeModelId(process.env.GROQ_VISION_MODEL);
+    const chatModel = this.sanitizeModelId(process.env.GROQ_MODEL || this.model);
+    const TEXT_ONLY = new Set([
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'llama-3.1-70b-versatile',
+      'gemma2-9b-it',
+      'mixtral-8x7b-32768',
+    ]);
+
+    const defaults = [
+      'qwen/qwen3.6-27b',
+      'meta-llama/llama-4-scout-17b-16e-instruct',
+      'meta-llama/llama-4-maverick-17b-128e-instruct',
+    ];
+
+    const ordered = [];
+    const push = (id) => {
+      if (!id || TEXT_ONLY.has(id) || ordered.includes(id)) return;
+      ordered.push(id);
+    };
+
+    push(configured);
+    for (const id of defaults) push(id);
+    // Nunca usar el modelo de chat si es solo-texto.
+    if (chatModel && !TEXT_ONLY.has(chatModel)) push(chatModel);
+    return ordered.length ? ordered : defaults;
   }
 
   async analyzeActivity(activity, analysisType, customPrompt = null, maxTokens = 1500) {
@@ -455,16 +493,18 @@ Responde SOLO el JSON.`;
       return {
         available: true,
         provider: 'groq',
-        model:
-          process.env.GROQ_VISION_MODEL ||
-          'meta-llama/llama-4-scout-17b-16e-instruct',
+        model: this.getGroqVisionModelCandidates()[0],
+        candidates: this.getGroqVisionModelCandidates(),
       };
     }
     if (this.provider === 'openai' && this.openai) {
       return {
         available: true,
         provider: 'openai',
-        model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o',
+        model:
+          this.sanitizeModelId(process.env.OPENAI_VISION_MODEL) ||
+          this.sanitizeModelId(process.env.OPENAI_MODEL) ||
+          'gpt-4o',
       };
     }
     if (this.provider === 'anthropic' && this.anthropic) {
@@ -472,26 +512,27 @@ Responde SOLO el JSON.`;
         available: true,
         provider: 'anthropic',
         model:
-          process.env.ANTHROPIC_VISION_MODEL ||
-          process.env.ANTHROPIC_MODEL ||
+          this.sanitizeModelId(process.env.ANTHROPIC_VISION_MODEL) ||
+          this.sanitizeModelId(process.env.ANTHROPIC_MODEL) ||
           'claude-3-5-sonnet-20241022',
       };
     }
-    // Si el provider de texto no tiene visión, usar cualquier cliente con visión.
     if (this.groq) {
       return {
         available: true,
         provider: 'groq',
-        model:
-          process.env.GROQ_VISION_MODEL ||
-          'meta-llama/llama-4-scout-17b-16e-instruct',
+        model: this.getGroqVisionModelCandidates()[0],
+        candidates: this.getGroqVisionModelCandidates(),
       };
     }
     if (this.openai) {
       return {
         available: true,
         provider: 'openai',
-        model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o',
+        model:
+          this.sanitizeModelId(process.env.OPENAI_VISION_MODEL) ||
+          this.sanitizeModelId(process.env.OPENAI_MODEL) ||
+          'gpt-4o',
       };
     }
     if (this.anthropic) {
@@ -499,12 +540,67 @@ Responde SOLO el JSON.`;
         available: true,
         provider: 'anthropic',
         model:
-          process.env.ANTHROPIC_VISION_MODEL ||
-          process.env.ANTHROPIC_MODEL ||
+          this.sanitizeModelId(process.env.ANTHROPIC_VISION_MODEL) ||
+          this.sanitizeModelId(process.env.ANTHROPIC_MODEL) ||
           'claude-3-5-sonnet-20241022',
       };
     }
     return { available: false, provider: null, model: null };
+  }
+
+  isModelUnavailableError(error) {
+    const msg = String(error?.message || '').toLowerCase();
+    const code = error?.error?.code || error?.code;
+    return (
+      error?.status === 404 ||
+      code === 'model_not_found' ||
+      msg.includes('does not exist') ||
+      msg.includes('do not have access') ||
+      msg.includes('model_not_found')
+    );
+  }
+
+  isVisionUnsupportedError(error) {
+    const msg = String(error?.message || '').toLowerCase();
+    return (
+      msg.includes('does not support image') ||
+      msg.includes('must be a string') ||
+      (msg.includes('image') && msg.includes('not support'))
+    );
+  }
+
+  isTransientVisionError(error) {
+    const msg = String(error?.message || '').toLowerCase();
+    return (
+      error?.status === 429 ||
+      error?.status === 503 ||
+      msg.includes('over capacity') ||
+      msg.includes('rate limit')
+    );
+  }
+
+  async createGroqVisionCompletion(model, messages, maxTokens) {
+    try {
+      return await this.groq.chat.completions.create({
+        model,
+        messages,
+        temperature: 0.1,
+        max_tokens: maxTokens,
+        response_format: { type: 'json_object' },
+      });
+    } catch (error) {
+      // Algunos modelos no aceptan response_format; reintentar sin JSON mode.
+      if (this.isModelUnavailableError(error) || this.isVisionUnsupportedError(error)) {
+        throw error;
+      }
+      console.warn('[Vision] Groq JSON mode retry without response_format:', error.message);
+      return this.groq.chat.completions.create({
+        model,
+        messages,
+        temperature: 0.1,
+        max_tokens: maxTokens,
+      });
+    }
   }
 
   /**
@@ -540,32 +636,43 @@ Responde SOLO el JSON.`;
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent },
       ];
+      const candidates = status.candidates || this.getGroqVisionModelCandidates();
+      let lastError = null;
 
-      let response;
-      try {
-        response = await this.groq.chat.completions.create({
-          model: status.model,
-          messages,
-          temperature: 0.1,
-          max_tokens: maxTokens,
-          response_format: { type: 'json_object' },
-        });
-      } catch (error) {
-        // Algunos modelos Groq no aceptan response_format o el id cambió.
-        console.warn('[Vision] Groq JSON mode/retry:', error.message);
-        response = await this.groq.chat.completions.create({
-          model: status.model,
-          messages,
-          temperature: 0.1,
-          max_tokens: maxTokens,
-        });
+      for (const model of candidates) {
+        try {
+          console.log('[Vision] Trying Groq model:', model);
+          const response = await this.createGroqVisionCompletion(model, messages, maxTokens);
+          return {
+            response: response.choices[0].message.content,
+            tokensUsed: response.usage?.total_tokens || 0,
+            model,
+          };
+        } catch (error) {
+          lastError = error;
+          console.warn('[Vision] Groq model failed:', model, error.status, error.message);
+          if (this.isTransientVisionError(error)) {
+            const err = new Error(
+              'El servicio de IA está saturado ahora. Esperá un minuto y reintentá.'
+            );
+            err.code = 'OCR_PROVIDER_BUSY';
+            err.cause = error;
+            throw err;
+          }
+          // Probar el siguiente candidato si el modelo no existe / no acepta imágenes.
+          if (this.isModelUnavailableError(error) || this.isVisionUnsupportedError(error)) {
+            continue;
+          }
+          throw error;
+        }
       }
 
-      return {
-        response: response.choices[0].message.content,
-        tokensUsed: response.usage?.total_tokens || 0,
-        model: status.model,
-      };
+      const err = new Error(
+        'Ningún modelo de visión de Groq respondió. En .env usá GROQ_VISION_MODEL=qwen/qwen3.6-27b (disponible en el plan free).'
+      );
+      err.code = 'VISION_UNAVAILABLE';
+      err.cause = lastError;
+      throw err;
     }
 
     if (status.provider === 'openai') {
