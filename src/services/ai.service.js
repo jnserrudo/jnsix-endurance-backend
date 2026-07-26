@@ -66,9 +66,9 @@ class AIService {
       'gemma2-9b-it',
       'mixtral-8x7b-32768',
     ]);
-
-    const defaults = [
-      'qwen/qwen3.6-27b',
+    // En plan free a menudo no hay acceso a Llama 4; Qwen sí.
+    const FREE_TIER_PREFERRED = 'qwen/qwen3.6-27b';
+    const OPTIONAL = [
       'meta-llama/llama-4-scout-17b-16e-instruct',
       'meta-llama/llama-4-maverick-17b-128e-instruct',
     ];
@@ -79,11 +79,12 @@ class AIService {
       ordered.push(id);
     };
 
-    push(configured);
-    for (const id of defaults) push(id);
-    // Nunca usar el modelo de chat si es solo-texto.
+    // Siempre probar Qwen primero (más fiable en free).
+    push(FREE_TIER_PREFERRED);
+    if (configured && configured !== FREE_TIER_PREFERRED) push(configured);
+    for (const id of OPTIONAL) push(id);
     if (chatModel && !TEXT_ONLY.has(chatModel)) push(chatModel);
-    return ordered.length ? ordered : defaults;
+    return ordered.length ? ordered : [FREE_TIER_PREFERRED];
   }
 
   async analyzeActivity(activity, analysisType, customPrompt = null, maxTokens = 1500) {
@@ -579,27 +580,62 @@ Responde SOLO el JSON.`;
     );
   }
 
+  isJsonModeError(error) {
+    const msg = String(error?.message || '').toLowerCase();
+    const code = error?.error?.code || error?.code;
+    return (
+      code === 'json_validate_failed' ||
+      msg.includes('json_validate_failed') ||
+      msg.includes('failed to validate json') ||
+      msg.includes('response_format')
+    );
+  }
+
   async createGroqVisionCompletion(model, messages, maxTokens) {
+    // Evitar response_format json_object en visión: Qwen a veces responde
+    // json_validate_failed con failed_generation vacío. Pedimos JSON por prompt.
     try {
-      return await this.groq.chat.completions.create({
+      const response = await this.groq.chat.completions.create({
         model,
         messages,
         temperature: 0.1,
         max_tokens: maxTokens,
-        response_format: { type: 'json_object' },
       });
+      const content = response?.choices?.[0]?.message?.content;
+      if (!content || !String(content).trim()) {
+        const err = new Error('Vision model returned empty content');
+        err.code = 'OCR_EMPTY_RESPONSE';
+        throw err;
+      }
+      return response;
     } catch (error) {
-      // Algunos modelos no aceptan response_format; reintentar sin JSON mode.
       if (this.isModelUnavailableError(error) || this.isVisionUnsupportedError(error)) {
         throw error;
       }
-      console.warn('[Vision] Groq JSON mode retry without response_format:', error.message);
-      return this.groq.chat.completions.create({
-        model,
-        messages,
-        temperature: 0.1,
-        max_tokens: maxTokens,
-      });
+      if (this.isJsonModeError(error) || error.code === 'OCR_EMPTY_RESPONSE') {
+        console.warn('[Vision] Groq empty/json retry:', error.message);
+        const response = await this.groq.chat.completions.create({
+          model,
+          messages: [
+            ...messages,
+            {
+              role: 'user',
+              content:
+                'Respondé ÚNICAMENTE un objeto JSON válido en una sola línea, sin markdown.',
+            },
+          ],
+          temperature: 0,
+          max_tokens: maxTokens,
+        });
+        const content = response?.choices?.[0]?.message?.content;
+        if (!content || !String(content).trim()) {
+          const err = new Error('Vision model returned empty content');
+          err.code = 'OCR_EMPTY_RESPONSE';
+          throw err;
+        }
+        return response;
+      }
+      throw error;
     }
   }
 
@@ -643,8 +679,14 @@ Responde SOLO el JSON.`;
         try {
           console.log('[Vision] Trying Groq model:', model);
           const response = await this.createGroqVisionCompletion(model, messages, maxTokens);
+          const content = response.choices?.[0]?.message?.content;
+          if (!content || !String(content).trim()) {
+            throw Object.assign(new Error('Vision model returned empty content'), {
+              code: 'OCR_EMPTY_RESPONSE',
+            });
+          }
           return {
-            response: response.choices[0].message.content,
+            response: content,
             tokensUsed: response.usage?.total_tokens || 0,
             model,
           };
@@ -659,8 +701,12 @@ Responde SOLO el JSON.`;
             err.cause = error;
             throw err;
           }
-          // Probar el siguiente candidato si el modelo no existe / no acepta imágenes.
-          if (this.isModelUnavailableError(error) || this.isVisionUnsupportedError(error)) {
+          // Probar el siguiente candidato si el modelo no existe / no acepta imágenes / vacío.
+          if (
+            this.isModelUnavailableError(error) ||
+            this.isVisionUnsupportedError(error) ||
+            error.code === 'OCR_EMPTY_RESPONSE'
+          ) {
             continue;
           }
           throw error;

@@ -357,9 +357,16 @@ async function parseActivityScreenshot({
 
   let parsed;
   try {
-    parsed = JSON.parse(stripJsonFence(aiResult.response));
+    const raw = stripJsonFence(aiResult.response);
+    if (!raw || raw === '{}' || raw.length < 5) {
+      throw new Error('empty');
+    }
+    parsed = JSON.parse(raw);
   } catch (e) {
-    const err = new Error('La IA devolvió un formato inválido. Reintentá con otra captura.');
+    console.warn('[OCR] Invalid JSON from model:', String(aiResult?.response || '').slice(0, 240));
+    const err = new Error(
+      'La IA no pudo armar bien los datos. Probá otra captura más nítida o cargá a mano.'
+    );
     err.code = 'OCR_INVALID_JSON';
     throw err;
   }

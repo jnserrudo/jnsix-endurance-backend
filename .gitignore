@@ -95,6 +95,7 @@ prisma/migrations/
 
 # One-shot seed scripts at repo root (src/seed*.js and prisma/seed.js stay tracked)
 /seed*.js
+!/seed_badges.js
 /massive-seed.js
 
 # Editor directories and files

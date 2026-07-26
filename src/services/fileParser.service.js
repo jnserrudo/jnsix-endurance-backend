@@ -6,16 +6,27 @@ const { promisify } = require('util');
 
 const gpxParseAsync = promisify(gpxParse.parseGpx);
 
+/** FIT sport enums (Garmin/Coros) → ActivityType */
+const FIT_SPORT_NUM = {
+  0: 'OTHER', // generic
+  1: 'RUN',
+  2: 'RIDE',
+  5: 'SWIM',
+  11: 'WALK',
+  17: 'HIKE',
+  45: 'TRAIL_RUN', // some devices
+};
+
 class FileParserService {
   async parseFitFile(buffer) {
     return new Promise((resolve, reject) => {
       const fitParser = new FitParser({
         force: true,
         speedUnit: 'km/h',
-        lengthUnit: 'km',
+        lengthUnit: 'm', // metros: normalizamos nosotros (evita dobles conversiones)
         temperatureUnit: 'celsius',
         elapsedRecordField: true,
-        mode: 'both'
+        mode: 'both',
       });
 
       fitParser.parse(buffer, (error, data) => {
@@ -24,8 +35,7 @@ class FileParserService {
         }
 
         try {
-          const activity = this.extractFitData(data);
-          resolve(activity);
+          resolve(this.extractFitData(data));
         } catch (err) {
           reject(err);
         }
@@ -33,31 +43,173 @@ class FileParserService {
     });
   }
 
+  toTimestampMs(value) {
+    if (value == null) return null;
+    if (value instanceof Date) {
+      const t = value.getTime();
+      return Number.isFinite(t) ? t : null;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      // epoch seconds vs ms
+      return value < 1e12 ? value * 1000 : value;
+    }
+    const d = new Date(value);
+    const t = d.getTime();
+    return Number.isFinite(t) ? t : null;
+  }
+
+  normalizeLatLon(lat, lon) {
+    if (typeof lat !== 'number' || typeof lon !== 'number') return null;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+    let la = lat;
+    let lo = lon;
+    // Semicírculos FIT sin convertir
+    if (Math.abs(la) > 90 || Math.abs(lo) > 180) {
+      la = (la * 180) / 2147483648;
+      lo = (lo * 180) / 2147483648;
+    }
+    if (Math.abs(la) > 90 || Math.abs(lo) > 180) return null;
+    if (la === 0 && lo === 0) return null;
+    return [la, lo];
+  }
+
+  /**
+   * Distancia en km. fit-file-parser con lengthUnit m → metros.
+   * Si algún archivo ya viene en km (< ~500 y parece km), no dividir.
+   */
+  normalizeDistanceKm(raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    // > 500 suele ser metros (5 km = 5000 m). Valores chicos raros en km reales.
+    if (n > 500) return n / 1000;
+    return n;
+  }
+
+  movingTimeFromRecords(records) {
+    if (!Array.isArray(records) || records.length < 2) return 0;
+    const t0 = this.toTimestampMs(records[0].timestamp);
+    const t1 = this.toTimestampMs(records[records.length - 1].timestamp);
+    if (t0 == null || t1 == null || t1 <= t0) return 0;
+    return Math.max(0, Math.round((t1 - t0) / 1000));
+  }
+
+  /**
+   * Elige un movingTime razonable (segundos).
+   * Prioriza total_timer_time; si es absurdo vs GPS/distancia, usa records.
+   */
+  resolveMovingTimeSec(session, records, distanceKm) {
+    let timer = Number(session.total_timer_time);
+    let elapsed = Number(session.total_elapsed_time);
+    if (!Number.isFinite(timer) || timer < 0) timer = 0;
+    if (!Number.isFinite(elapsed) || elapsed < 0) elapsed = 0;
+
+    // Algunos firmwares entregan milisegundos
+    if (timer > 48 * 3600 && timer / 1000 <= 48 * 3600) timer = Math.round(timer / 1000);
+    if (elapsed > 48 * 3600 && elapsed / 1000 <= 48 * 3600) elapsed = Math.round(elapsed / 1000);
+
+    timer = Math.round(timer);
+    elapsed = Math.round(elapsed);
+
+    const fromRecords = this.movingTimeFromRecords(records);
+    let chosen = timer || elapsed || fromRecords || 0;
+
+    if (distanceKm > 0.2 && chosen > 0) {
+      const speedKmh = distanceKm / (chosen / 3600);
+      // < 0.8 km/h o > 80 km/h en actividad con GPS → sospechoso
+      const absurd = speedKmh < 0.8 || speedKmh > 80;
+      if (absurd && fromRecords > 60) {
+        const altSpeed = distanceKm / (fromRecords / 3600);
+        if (altSpeed >= 0.8 && altSpeed <= 80) {
+          chosen = fromRecords;
+        } else if (elapsed > 0 && elapsed !== timer) {
+          const elSpeed = distanceKm / (elapsed / 3600);
+          if (elSpeed >= 0.8 && elSpeed <= 80) chosen = elapsed;
+        }
+      }
+    } else if ((!chosen || chosen < 30) && fromRecords > chosen) {
+      chosen = fromRecords;
+    }
+
+    // Cap duro 36h
+    if (chosen > 36 * 3600) chosen = fromRecords || Math.min(chosen, 36 * 3600);
+    return Math.max(0, chosen);
+  }
+
+  resolveStartDate(session, records) {
+    const fromSession = this.toTimestampMs(session.start_time);
+    if (fromSession) return new Date(fromSession);
+    const fromRecord = records[0] ? this.toTimestampMs(records[0].timestamp) : null;
+    if (fromRecord) return new Date(fromRecord);
+    return new Date();
+  }
+
+  resolveFitSport(session = {}, data = {}) {
+    const rawCandidates = [
+      session.sport,
+      session.sub_sport,
+      session.sport_profile_name,
+      data.activity?.sport,
+      data.sports?.[0]?.sport,
+    ];
+
+    for (const raw of rawCandidates) {
+      if (raw == null || raw === '') continue;
+      if (typeof raw === 'number' && FIT_SPORT_NUM[raw]) {
+        return FIT_SPORT_NUM[raw];
+      }
+      const mapped = this.mapActivityType(raw);
+      if (mapped !== 'OTHER') return mapped;
+      const inferred = this.inferTypeFromName(String(raw));
+      if (inferred !== 'OTHER') return inferred;
+    }
+
+    // Coros a veces deja sport=generic y el nombre sí dice Run/Trail
+    const nameGuess = this.inferTypeFromName(
+      session.sport_profile_name || session.name || data.activity?.type || ''
+    );
+    return nameGuess;
+  }
+
   extractFitData(data) {
     const session = data.sessions?.[0] || {};
     const records = data.records || [];
     const laps = data.laps || [];
 
+    const distanceKm = this.normalizeDistanceKm(session.total_distance);
+    const movingTime = this.resolveMovingTimeSec(session, records, distanceKm);
+    const type = this.resolveFitSport(session, data);
+    const startDate = this.resolveStartDate(session, records);
     const coordinates = this.downsampleCoordinates(records);
 
+    const profileName =
+      session.sport_profile_name ||
+      session.name ||
+      (typeof session.sport === 'string' ? session.sport : null) ||
+      'Actividad';
+
     const activity = {
-      name: session.sport || 'Activity',
-      type: this.mapActivityType(session.sport || session.sub_sport),
-      distanceKm: (session.total_distance || 0) / 1000,
-      elevationM: session.total_ascent || 0,
-      movingTime: session.total_timer_time || 0,
-      startDate: session.start_time || new Date(),
-      averageHr: session.avg_heart_rate || null,
-      maxHr: session.max_heart_rate || null,
-      calories: session.total_calories || null,
-      mapPolyline: coordinates.length > 0 ? polyline.encode(coordinates) : null,
+      name: String(profileName).replace(/_/g, ' '),
+      type,
+      distanceKm,
+      elevationM: Number(session.total_ascent) || 0,
+      movingTime,
+      startDate,
+      averageHr: session.avg_heart_rate ? Math.round(Number(session.avg_heart_rate)) : null,
+      maxHr: session.max_heart_rate ? Math.round(Number(session.max_heart_rate)) : null,
+      calories: session.total_calories ? Math.round(Number(session.total_calories)) : null,
+      mapPolyline: coordinates.length > 1 ? polyline.encode(coordinates) : null,
       rawData: {
-        session,
+        source: 'fit',
+        sportRaw: session.sport,
+        subSportRaw: session.sub_sport,
+        total_timer_time: session.total_timer_time,
+        total_elapsed_time: session.total_elapsed_time,
         recordsCount: records.length,
         lapsCount: laps.length,
-        coordinates
+        coordinatesCount: coordinates.length,
       },
-      laps: this.extractLaps(laps)
+      laps: this.extractLaps(laps),
     };
 
     return activity;
@@ -74,9 +226,7 @@ class FileParserService {
       }
 
       const points = track.segments[0];
-      const activity = this.extractGpxData(data, points);
-      
-      return activity;
+      return this.extractGpxData(data, points);
     } catch (error) {
       throw new Error(`GPX parse error: ${error.message}`);
     }
@@ -87,24 +237,22 @@ class FileParserService {
     let totalElevationGain = 0;
     let minElevation = Infinity;
     let maxElevation = -Infinity;
-    let heartRates = [];
+    const heartRates = [];
 
     for (let i = 0; i < points.length; i++) {
       const point = points[i];
-      
+
       if (point.elevation) {
         if (point.elevation < minElevation) minElevation = point.elevation;
         if (point.elevation > maxElevation) maxElevation = point.elevation;
-        
+
         if (i > 0 && points[i - 1].elevation) {
           const elevDiff = point.elevation - points[i - 1].elevation;
           if (elevDiff > 0) totalElevationGain += elevDiff;
         }
       }
 
-      if (point.hr) {
-        heartRates.push(point.hr);
-      }
+      if (point.hr) heartRates.push(point.hr);
 
       if (i > 0) {
         totalDistance += this.calculateDistance(
@@ -116,18 +264,21 @@ class FileParserService {
       }
     }
 
-    const startTime = points[0]?.time || new Date();
-    const endTime = points[points.length - 1]?.time || new Date();
-    const movingTime = Math.floor((endTime - startTime) / 1000);
+    const startMs = this.toTimestampMs(points[0]?.time);
+    const endMs = this.toTimestampMs(points[points.length - 1]?.time);
+    const movingTime =
+      startMs != null && endMs != null && endMs > startMs
+        ? Math.floor((endMs - startMs) / 1000)
+        : 0;
 
-    const avgHr = heartRates.length > 0
-      ? Math.round(heartRates.reduce((a, b) => a + b, 0) / heartRates.length)
-      : null;
-    
+    const avgHr =
+      heartRates.length > 0
+        ? Math.round(heartRates.reduce((a, b) => a + b, 0) / heartRates.length)
+        : null;
     const maxHr = heartRates.length > 0 ? Math.max(...heartRates) : null;
 
     const coordinates = this.downsampleCoordinates(points);
-    const gpxName = data.tracks[0]?.name || 'GPX Activity';
+    const gpxName = data.tracks[0]?.name || 'Actividad GPX';
 
     return {
       name: gpxName,
@@ -135,18 +286,19 @@ class FileParserService {
       distanceKm: totalDistance / 1000,
       elevationM: totalElevationGain,
       movingTime,
-      startDate: startTime,
+      startDate: startMs ? new Date(startMs) : new Date(),
       averageHr: avgHr,
       maxHr: maxHr,
       calories: null,
-      mapPolyline: coordinates.length > 0 ? polyline.encode(coordinates) : null,
+      mapPolyline: coordinates.length > 1 ? polyline.encode(coordinates) : null,
       rawData: {
+        source: 'gpx',
         pointsCount: points.length,
         minElevation,
         maxElevation,
-        coordinates
+        coordinatesCount: coordinates.length,
       },
-      laps: this.generateLapsFromDistance(points, totalDistance)
+      laps: this.generateLapsFromDistance(points, totalDistance),
     };
   }
 
@@ -157,7 +309,7 @@ class FileParserService {
         ignoreAttributes: false,
         attributeNamePrefix: '@_',
         parseAttributeValue: false,
-        trimValues: true
+        trimValues: true,
       });
       const xml = parser.parse(tcxString);
 
@@ -166,11 +318,16 @@ class FileParserService {
       if (!activityNode) throw new Error('No activity found in TCX file');
 
       const sport = activityNode['@_Sport'] || 'Other';
-      const name = activityNode.Notes || activityNode.Id || `${sport} Activity`;
+      const notes = typeof activityNode.Notes === 'string' ? activityNode.Notes.trim() : '';
+      const name =
+        (notes && !/^private$/i.test(notes) ? notes : null) ||
+        (typeof activityNode.Id === 'string' ? activityNode.Id : null) ||
+        `${sport} Activity`;
 
       const allPoints = [];
       const tcxLaps = [];
       let totalDistance = 0;
+      let totalTimeFromLaps = 0;
 
       const lapNodes = Array.isArray(activityNode.Lap)
         ? activityNode.Lap
@@ -179,6 +336,7 @@ class FileParserService {
       for (const lapNode of lapNodes) {
         const lapDistanceMeters = parseFloat(lapNode.DistanceMeters) || 0;
         const lapTimeSeconds = parseFloat(lapNode.TotalTimeSeconds) || 0;
+        totalTimeFromLaps += lapTimeSeconds;
         const lapTrack = lapNode.Track;
         const trackpoints = lapTrack?.Trackpoint
           ? Array.isArray(lapTrack.Trackpoint)
@@ -188,19 +346,23 @@ class FileParserService {
 
         const points = [];
         for (const tp of trackpoints) {
-          const lat = tp.Position?.LatitudeDegrees !== undefined
-            ? parseFloat(tp.Position.LatitudeDegrees)
-            : null;
-          const lon = tp.Position?.LongitudeDegrees !== undefined
-            ? parseFloat(tp.Position.LongitudeDegrees)
-            : null;
+          const lat =
+            tp.Position?.LatitudeDegrees !== undefined
+              ? parseFloat(tp.Position.LatitudeDegrees)
+              : null;
+          const lon =
+            tp.Position?.LongitudeDegrees !== undefined
+              ? parseFloat(tp.Position.LongitudeDegrees)
+              : null;
           if (lat === null || lon === null) continue;
 
-          const elevation = tp.AltitudeMeters !== undefined ? parseFloat(tp.AltitudeMeters) : null;
+          const elevation =
+            tp.AltitudeMeters !== undefined ? parseFloat(tp.AltitudeMeters) : null;
           const time = tp.Time ? new Date(tp.Time) : null;
-          const hr = tp.HeartRateBpm?.Value !== undefined
-            ? parseInt(tp.HeartRateBpm.Value, 10)
-            : null;
+          const hr =
+            tp.HeartRateBpm?.Value !== undefined
+              ? parseInt(tp.HeartRateBpm.Value, 10)
+              : null;
 
           points.push({ lat, lon, elevation, time, hr });
         }
@@ -209,27 +371,31 @@ class FileParserService {
         tcxLaps.push({
           distance: lapDistanceMeters / 1000,
           timeSeconds: lapTimeSeconds,
-          points
+          points,
         });
 
-        totalDistance += lapDistanceMeters > 0
-          ? lapDistanceMeters
-          : this.calculatePointsDistance(points);
+        totalDistance +=
+          lapDistanceMeters > 0 ? lapDistanceMeters : this.calculatePointsDistance(points);
       }
 
       if (allPoints.length === 0) throw new Error('No trackpoints found in TCX file');
 
-      const startTime = allPoints[0]?.time || new Date();
-      const endTime = allPoints[allPoints.length - 1]?.time || startTime;
-      const movingTime = Math.max(0, Math.floor((endTime - startTime) / 1000));
+      const startMs = this.toTimestampMs(allPoints[0]?.time);
+      const endMs = this.toTimestampMs(allPoints[allPoints.length - 1]?.time);
+      const fromPoints =
+        startMs != null && endMs != null && endMs > startMs
+          ? Math.floor((endMs - startMs) / 1000)
+          : 0;
+      const movingTime = totalTimeFromLaps > 0 ? Math.round(totalTimeFromLaps) : fromPoints;
 
       const heartRates = allPoints
         .filter((p) => p.hr !== null && !isNaN(p.hr))
         .map((p) => p.hr);
 
-      const avgHr = heartRates.length > 0
-        ? Math.round(heartRates.reduce((a, b) => a + b, 0) / heartRates.length)
-        : null;
+      const avgHr =
+        heartRates.length > 0
+          ? Math.round(heartRates.reduce((a, b) => a + b, 0) / heartRates.length)
+          : null;
       const maxHr = heartRates.length > 0 ? Math.max(...heartRates) : null;
 
       let totalElevationGain = 0;
@@ -245,20 +411,21 @@ class FileParserService {
       const coordinates = this.downsampleCoordinates(allPoints);
 
       return {
-        name,
+        name: String(name).slice(0, 120),
         type: this.mapActivityType(sport),
         distanceKm: totalDistance / 1000,
         elevationM: totalElevationGain,
         movingTime,
-        startDate: startTime,
+        startDate: startMs ? new Date(startMs) : new Date(),
         averageHr: avgHr,
         maxHr: maxHr,
         calories: null,
-        mapPolyline: coordinates.length > 0 ? polyline.encode(coordinates) : null,
+        mapPolyline: coordinates.length > 1 ? polyline.encode(coordinates) : null,
         rawData: {
+          source: 'tcx',
           pointsCount: allPoints.length,
           lapsCount: tcxLaps.length,
-          coordinates
+          coordinatesCount: coordinates.length,
         },
         laps: tcxLaps.map((lap, index) => ({
           splitNum: index + 1,
@@ -266,8 +433,8 @@ class FileParserService {
           elevationGain: 0,
           averagePace: this.calculatePace(lap.distance * 1000, lap.timeSeconds),
           averageHr: null,
-          maxHr: null
-        }))
+          maxHr: null,
+        })),
       };
     } catch (error) {
       throw new Error(`TCX parse error: ${error.message}`);
@@ -288,14 +455,23 @@ class FileParserService {
   }
 
   extractLaps(laps) {
-    return laps.map((lap, index) => ({
-      splitNum: index + 1,
-      distance: (lap.total_distance || 0) / 1000,
-      elevationGain: lap.total_ascent || 0,
-      averagePace: this.calculatePace(lap.total_distance, lap.total_timer_time),
-      averageHr: lap.avg_heart_rate || null,
-      maxHr: lap.max_heart_rate || null
-    }));
+    return (laps || []).map((lap, index) => {
+      // lengthUnit: 'm' → total_distance en metros
+      const distKm = (Number(lap.total_distance) || 0) / 1000;
+      let timeSec = Number(lap.total_timer_time) || 0;
+      if (timeSec > 48 * 3600 && timeSec / 1000 <= 48 * 3600) {
+        timeSec = Math.round(timeSec / 1000);
+      }
+      timeSec = Math.round(timeSec);
+      return {
+        splitNum: index + 1,
+        distance: distKm,
+        elevationGain: Number(lap.total_ascent) || 0,
+        averagePace: this.calculatePace(distKm * 1000, timeSec),
+        averageHr: lap.avg_heart_rate ? Math.round(Number(lap.avg_heart_rate)) : null,
+        maxHr: lap.max_heart_rate ? Math.round(Number(lap.max_heart_rate)) : null,
+      };
+    });
   }
 
   generateLapsFromDistance(points, totalDistance) {
@@ -312,14 +488,14 @@ class FileParserService {
         points[i].lat,
         points[i].lon
       );
-      
+
       accumulatedDistance += segmentDistance;
 
       if (accumulatedDistance >= currentKm * kmInterval) {
         const lapPoints = points.slice(lapStartIndex, i + 1);
         const lap = this.calculateLapMetrics(lapPoints, currentKm);
         laps.push(lap);
-        
+
         lapStartIndex = i;
         currentKm++;
       }
@@ -331,7 +507,7 @@ class FileParserService {
   calculateLapMetrics(points, splitNum) {
     let distance = 0;
     let elevationGain = 0;
-    let heartRates = [];
+    const heartRates = [];
 
     for (let i = 1; i < points.length; i++) {
       distance += this.calculateDistance(
@@ -349,19 +525,23 @@ class FileParserService {
       if (points[i].hr) heartRates.push(points[i].hr);
     }
 
-    const startTime = points[0]?.time;
-    const endTime = points[points.length - 1]?.time;
-    const timeSeconds = startTime && endTime ? (endTime - startTime) / 1000 : 0;
+    const startMs = this.toTimestampMs(points[0]?.time);
+    const endMs = this.toTimestampMs(points[points.length - 1]?.time);
+    const timeSeconds =
+      startMs != null && endMs != null && endMs > startMs
+        ? Math.round((endMs - startMs) / 1000)
+        : 0;
 
     return {
       splitNum,
       distance: distance / 1000,
       elevationGain,
       averagePace: this.calculatePace(distance, timeSeconds),
-      averageHr: heartRates.length > 0
-        ? Math.round(heartRates.reduce((a, b) => a + b, 0) / heartRates.length)
-        : null,
-      maxHr: heartRates.length > 0 ? Math.max(...heartRates) : null
+      averageHr:
+        heartRates.length > 0
+          ? Math.round(heartRates.reduce((a, b) => a + b, 0) / heartRates.length)
+          : null,
+      maxHr: heartRates.length > 0 ? Math.max(...heartRates) : null,
     };
   }
 
@@ -391,18 +571,42 @@ class FileParserService {
   }
 
   mapActivityType(sport) {
+    if (sport == null) return 'OTHER';
+    if (typeof sport === 'number' && FIT_SPORT_NUM[sport]) return FIT_SPORT_NUM[sport];
+
+    const key = String(sport).toLowerCase().trim().replace(/\s+/g, '_');
     const mapping = {
-      'running': 'RUN',
-      'trail_running': 'TRAIL_RUN',
-      'cycling': 'RIDE',
-      'swimming': 'SWIM',
-      'walking': 'WALK',
-      'hiking': 'HIKE',
-      'virtual_run': 'VIRTUAL_RUN',
-      'virtual_ride': 'VIRTUAL_RIDE'
+      running: 'RUN',
+      run: 'RUN',
+      road_running: 'RUN',
+      trail_running: 'TRAIL_RUN',
+      trail: 'TRAIL_RUN',
+      trail_run: 'TRAIL_RUN',
+      cycling: 'RIDE',
+      cycle: 'RIDE',
+      bike: 'RIDE',
+      biking: 'RIDE',
+      road_biking: 'RIDE',
+      mountain_biking: 'RIDE',
+      swimming: 'SWIM',
+      swim: 'SWIM',
+      lap_swimming: 'SWIM',
+      open_water_swimming: 'SWIM',
+      walking: 'WALK',
+      walk: 'WALK',
+      hiking: 'HIKE',
+      hike: 'HIKE',
+      virtual_run: 'VIRTUAL_RUN',
+      virtual_ride: 'VIRTUAL_RIDE',
+      treadmill: 'RUN',
+      indoor_running: 'RUN',
+      cardio: 'OTHER',
+      generic: 'OTHER',
+      training: 'OTHER',
+      strength_training: 'OTHER',
     };
 
-    return mapping[sport?.toLowerCase()] || 'OTHER';
+    return mapping[key] || 'OTHER';
   }
 
   inferTypeFromName(name) {
@@ -410,12 +614,31 @@ class FileParserService {
 
     if (normalized.includes('virtual ride') || normalized.includes('virtualride')) return 'VIRTUAL_RIDE';
     if (normalized.includes('virtual run') || normalized.includes('virtualrun')) return 'VIRTUAL_RUN';
-    if (normalized.includes('trail run') || normalized.includes('trailrun')) return 'TRAIL_RUN';
-    if (normalized.includes('bike') || normalized.includes('ride') || normalized.includes('cycling') || normalized.includes('bicicleta')) return 'RIDE';
-    if (normalized.includes('swim') || normalized.includes('natación') || normalized.includes('natacion')) return 'SWIM';
+    if (normalized.includes('trail')) return 'TRAIL_RUN';
+    if (
+      normalized.includes('bike') ||
+      normalized.includes('ride') ||
+      normalized.includes('cycling') ||
+      normalized.includes('bicicleta') ||
+      normalized.includes('bici')
+    ) {
+      return 'RIDE';
+    }
+    if (normalized.includes('swim') || normalized.includes('natación') || normalized.includes('natacion')) {
+      return 'SWIM';
+    }
     if (normalized.includes('walk') || normalized.includes('caminata')) return 'WALK';
-    if (normalized.includes('hike') || normalized.includes('trekking') || normalized.includes('senderismo')) return 'HIKE';
-    if (normalized.includes('run') || normalized.includes('corrida') || normalized.includes('running')) return 'RUN';
+    if (normalized.includes('hike') || normalized.includes('trekking') || normalized.includes('senderismo')) {
+      return 'HIKE';
+    }
+    if (
+      normalized.includes('run') ||
+      normalized.includes('corrida') ||
+      normalized.includes('running') ||
+      normalized.includes('correr')
+    ) {
+      return 'RUN';
+    }
 
     return 'OTHER';
   }
@@ -423,33 +646,26 @@ class FileParserService {
   downsampleCoordinates(points) {
     const maxMapPoints = 300;
     if (!points || points.length === 0) return [];
-    
+
     const step = Math.max(1, Math.floor(points.length / maxMapPoints));
     const coordinates = [];
-    
+
+    const pushPoint = (p) => {
+      if (!p) return;
+      const lat = p.lat ?? p.latitude ?? p.position_lat;
+      const lon = p.lon ?? p.longitude ?? p.position_long ?? p.position_lng;
+      const pair = this.normalizeLatLon(lat, lon);
+      if (pair) coordinates.push(pair);
+    };
+
     for (let i = 0; i < points.length; i += step) {
-      const p = points[i];
-      if (p) {
-        const lat = p.lat ?? p.latitude ?? p.position_lat;
-        const lon = p.lon ?? p.longitude ?? p.position_long ?? p.position_lng;
-        if (typeof lat === 'number' && typeof lon === 'number') {
-          coordinates.push([lat, lon]);
-        }
-      }
+      pushPoint(points[i]);
     }
-    
-    // Always include the last point
+
     if (points.length > 1 && (points.length - 1) % step !== 0) {
-      const p = points[points.length - 1];
-      if (p) {
-        const lat = p.lat ?? p.latitude ?? p.position_lat;
-        const lon = p.lon ?? p.longitude ?? p.position_long ?? p.position_lng;
-        if (typeof lat === 'number' && typeof lon === 'number') {
-          coordinates.push([lat, lon]);
-        }
-      }
+      pushPoint(points[points.length - 1]);
     }
-    
+
     return coordinates;
   }
 }

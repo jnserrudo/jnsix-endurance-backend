@@ -2,7 +2,13 @@ const prisma = require('../lib/prisma');
 const scoringService = require('./scoring.service');
 const { copy } = require('../constants/copy.es');
 const { activeMissionWhere, startOfDay, getTodayMissionForUser } = require('./missionRotation.service');
-const { ensureBadgesExist } = require('../data/defaultBadges');
+// Preferir catálogo en src/ (siempre en deploy). Fallback por si el VPS aún tiene require viejo.
+let ensureBadgesExist;
+try {
+  ({ ensureBadgesExist } = require('../data/defaultBadges'));
+} catch (e) {
+  ({ ensureBadgesExist } = require('../../seed_badges'));
+}
 const { notify } = require('./notifications.service');
 
 const { calculateStreakFromDates } = require('../utils/streak');
