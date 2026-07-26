@@ -3,6 +3,7 @@ const router = express.Router();
 const usersController = require('../controllers/users.controller');
 const { authenticateToken } = require('../middleware/auth.middleware');
 const imageUpload = require('../middleware/imageUpload.middleware');
+const { uploadImageField } = imageUpload;
 
 router.use(authenticateToken);
 
@@ -11,8 +12,8 @@ router.get('/discover', usersController.discoverAthletes);
 router.get('/me/profile', usersController.getMyProfile);
 router.put('/me/profile', usersController.updateMyProfile);
 router.put('/me/coach-memory', usersController.updateCoachMemory);
-router.post('/me/avatar', imageUpload.single('image'), usersController.uploadAvatar);
-router.post('/me/cover', imageUpload.single('image'), usersController.uploadCover);
+router.post('/me/avatar', uploadImageField('image'), usersController.uploadAvatar);
+router.post('/me/cover', uploadImageField('image'), usersController.uploadCover);
 router.post('/me/onboarding', usersController.completeOnboarding);
 router.get('/me/export', usersController.exportMyData);
 router.get('/me/blocks', usersController.listMyBlocks);

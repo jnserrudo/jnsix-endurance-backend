@@ -25,7 +25,7 @@ router.get('/:id/requests', communitiesController.listCommunityJoinRequests);
 router.patch('/:id/requests/:requestId', communitiesController.respondCommunityJoinRequest);
 router.post('/:id/invite', communitiesController.inviteToCommunity);
 router.get('/:id/invitations', communitiesController.listCommunityInvitations);
-router.post('/:id/avatar', imageUpload.single('image'), communitiesController.uploadCommunityAvatar);
+router.post('/:id/avatar', imageUpload.uploadImageField('image'), communitiesController.uploadCommunityAvatar);
 router.delete('/:id/leave', communitiesController.leaveCommunity);
 
 // Muro de la comunidad (feed filtrado por communityId)

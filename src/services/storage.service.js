@@ -56,7 +56,19 @@ class StorageService {
 
   async uploadFile(file, userId) {
     try {
-      const fileExt = path.extname(file.originalname);
+      if (!file || !file.buffer) {
+        throw new Error('Archivo inválido o vacío');
+      }
+
+      let fileExt = path.extname(file.originalname || '').toLowerCase();
+      if (!fileExt) {
+        const mime = (file.mimetype || '').toLowerCase();
+        if (mime.includes('png')) fileExt = '.png';
+        else if (mime.includes('webp')) fileExt = '.webp';
+        else if (mime.includes('heic') || mime.includes('heif')) fileExt = '.heic';
+        else fileExt = '.jpg';
+      }
+
       const uniqueName = `${uuidv4()}${fileExt}`;
       const relativePath = this._objectKey(userId, uniqueName);
 

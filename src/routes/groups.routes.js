@@ -24,7 +24,7 @@ router.get('/:id/requests', groupsController.listGroupJoinRequests);
 router.patch('/:id/requests/:requestId', groupsController.respondGroupJoinRequest);
 router.post('/:id/invite', groupsController.inviteToGroup);
 router.get('/:id/invitations', groupsController.listGroupInvitations);
-router.post('/:id/avatar', imageUpload.single('image'), groupsController.uploadGroupAvatar);
+router.post('/:id/avatar', imageUpload.uploadImageField('image'), groupsController.uploadGroupAvatar);
 router.delete('/:id/leave', groupsController.leaveGroup);
 router.post('/:id/subgroups', groupsController.createSubgroup);
 

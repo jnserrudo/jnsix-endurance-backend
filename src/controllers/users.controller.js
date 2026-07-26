@@ -188,7 +188,17 @@ const uploadAvatar = async (req, res) => {
     const file = req.file;
 
     if (!file) {
-      return res.status(400).json({ error: 'No se envió ninguna imagen' });
+      return res.status(400).json({
+        error: 'No recibimos la imagen. Probá elegir otra desde la galería.',
+        code: 'IMAGE_MISSING',
+      });
+    }
+
+    if (!file.buffer || !file.buffer.length) {
+      return res.status(400).json({
+        error: 'La imagen llegó vacía. Intentá de nuevo con otra foto.',
+        code: 'IMAGE_EMPTY',
+      });
     }
 
     const uploadResult = await storage.uploadFile(file, userId);
@@ -201,8 +211,11 @@ const uploadAvatar = async (req, res) => {
 
     res.json(user);
   } catch (error) {
-    console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error('[ERROR] uploadAvatar:', error);
+    res.status(500).json({
+      error: 'No pudimos guardar tu foto de perfil. Intentá de nuevo.',
+      code: 'AVATAR_UPLOAD_FAILED',
+    });
   }
 };
 
@@ -212,7 +225,17 @@ const uploadCover = async (req, res) => {
     const file = req.file;
 
     if (!file) {
-      return res.status(400).json({ error: 'No se envió ninguna imagen' });
+      return res.status(400).json({
+        error: 'No recibimos la imagen. Probá elegir otra desde la galería.',
+        code: 'IMAGE_MISSING',
+      });
+    }
+
+    if (!file.buffer || !file.buffer.length) {
+      return res.status(400).json({
+        error: 'La imagen llegó vacía. Intentá de nuevo con otra foto.',
+        code: 'IMAGE_EMPTY',
+      });
     }
 
     const uploadResult = await storage.uploadFile(file, userId);
@@ -225,8 +248,11 @@ const uploadCover = async (req, res) => {
 
     res.json(user);
   } catch (error) {
-    console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error('[ERROR] uploadCover:', error);
+    res.status(500).json({
+      error: 'No pudimos guardar tu foto de portada. Intentá de nuevo.',
+      code: 'COVER_UPLOAD_FAILED',
+    });
   }
 };
 

@@ -41,16 +41,19 @@ const imageStorage = multer.diskStorage({
 });
 
 const imageFilter = (req, file, cb) => {
-  if (file.mimetype.startsWith('image/')) {
+  const mime = (file.mimetype || '').toLowerCase();
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const allowedExt = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.gif'];
+  if (mime.startsWith('image/') || allowedExt.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error('Solo se permiten imágenes (jpeg, png, etc.)'), false);
+    cb(new Error('Solo se permiten imágenes (jpeg, png, webp, etc.)'), false);
   }
 };
 
 const uploadImage = multer({
   storage: imageStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: imageFilter
 });
 
