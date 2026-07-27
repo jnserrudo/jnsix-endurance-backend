@@ -123,6 +123,9 @@ model User {
   liveChallengeParts LiveChallengeParticipant[]
   syncJobs          SyncJob[]
   checkIns          BusinessCheckIn[]
+  liveRunSessions   LiveRunSession[]
+  liveRunViewers    LiveRunViewer[]
+  liveRunChatMessages LiveRunChatMessage[]
 
   business       Business?
   redemptions    Redemption[]
@@ -185,6 +188,7 @@ model Activity {
 
   effortLog      EffortLog?
   segmentEfforts SegmentLeaderboard[]
+  liveRunSession LiveRunSession?
 
   @@index([userId])
   @@index([startDate])
@@ -1149,6 +1153,7 @@ enum NotificationType {
   STREAK_AT_RISK
   MENTION
   DUEL_UPDATE
+  LIVE_RUN_STARTED
 }
 
 enum InvitationStatus {
@@ -1744,4 +1749,95 @@ model BusinessCheckIn {
   @@index([userId])
   @@index([businessId])
   @@map("business_check_ins")
+}
+
+enum LiveRunStatus {
+  LIVE
+  PAUSED
+  ENDED
+  CANCELLED
+}
+
+enum LiveRunVisibility {
+  FRIENDS
+  INVITE_ONLY
+}
+
+model LiveRunSession {
+  id           String            @id @default(uuid())
+  userId       String            @map("user_id")
+  status       LiveRunStatus     @default(LIVE)
+  visibility   LiveRunVisibility @default(FRIENDS)
+  inviteToken  String            @unique @map("invite_token")
+  activityType String            @default("RUN") @map("activity_type")
+  startedAt    DateTime          @default(now()) @map("started_at")
+  endedAt      DateTime?         @map("ended_at")
+  lastLat      Float?            @map("last_lat")
+  lastLng      Float?            @map("last_lng")
+  distanceKm   Float             @default(0) @map("distance_km")
+  movingTime   Int               @default(0) @map("moving_time")
+  lastHr       Int?              @map("last_hr")
+  hrSource     String?           @map("hr_source")
+  viewerCount  Int               @default(0) @map("viewer_count")
+  lastSeq      Int               @default(0) @map("last_seq")
+  activityId   String?           @unique @map("activity_id")
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity     Activity?            @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  points       LiveRunPoint[]
+  chatMessages LiveRunChatMessage[]
+  viewers      LiveRunViewer[]
+
+  @@index([userId, status])
+  @@index([status, visibility])
+  @@map("live_run_sessions")
+}
+
+model LiveRunPoint {
+  id        String   @id @default(uuid())
+  sessionId String   @map("session_id")
+  seq       Int
+  lat       Float
+  lng       Float
+  distanceKm Float?  @map("distance_km")
+  movingTime Int?    @map("moving_time")
+  hr        Int?
+  recordedAt DateTime @map("recorded_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session LiveRunSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, seq])
+  @@map("live_run_points")
+}
+
+model LiveRunChatMessage {
+  id        String   @id @default(uuid())
+  sessionId String   @map("session_id")
+  userId    String   @map("user_id")
+  body      String   @db.VarChar(280)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session LiveRunSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("live_run_chat_messages")
+}
+
+model LiveRunViewer {
+  id         String   @id @default(uuid())
+  sessionId  String   @map("session_id")
+  userId     String   @map("user_id")
+  joinedAt   DateTime @default(now()) @map("joined_at")
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+
+  session LiveRunSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userId])
+  @@index([sessionId])
+  @@map("live_run_viewers")
 }

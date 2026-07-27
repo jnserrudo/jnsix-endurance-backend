@@ -70,6 +70,17 @@ const startCronJobs = () => {
     }
   });
 
+  // Cada 30 min: cerrar lives zombie (>6h sin update)
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      const { cleanupStaleLiveRuns } = require('../controllers/liveRuns.controller');
+      const n = await cleanupStaleLiveRuns();
+      if (n > 0) console.log(`[LiveRun] Cleaned ${n} stale sessions`);
+    } catch (error) {
+      console.error('[LiveRun] stale cleanup error:', error.message);
+    }
+  });
+
   console.log('Cron jobs scheduled.');
 };
 

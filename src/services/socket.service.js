@@ -141,6 +141,14 @@ const initSocket = (httpServer) => {
     socket.on('chat:send_message', handleSendMessage);
     socket.on('chat:message', handleSendMessage);
 
+    // Live Run Streaming (rooms live_run:{id}) — no reutiliza room: de chat
+    try {
+      const { attachLiveRunSocketHandlers } = require('../controllers/liveRuns.controller');
+      attachLiveRunSocketHandlers(io, socket);
+    } catch (err) {
+      console.warn('[Socket] live run handlers not attached:', err.message);
+    }
+
     // Permite que un cliente pida la lista de presencia bajo demanda.
     socket.on('presence:get', () => {
       socket.emit('presence:list', getOnlineUserIds());
