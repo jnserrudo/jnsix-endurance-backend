@@ -65,10 +65,10 @@ const DEFAULT_BADGES = [
     criteria: { type: 'FIRST_RAIN_RUN', target: 1 },
   },
   {
-    code: 'heat_run',
-    name: 'Corrida con calor',
-    description: 'Entrenaste con mucho calor (calor/heat/hot en el nombre o descripción).',
-    criteria: { type: 'FIRST_HEAT_RUN', target: 1 },
+    code: 'local_client',
+    name: 'Cliente local',
+    description: 'Hiciste check-in en un negocio adherido del Club.',
+    criteria: { type: 'BUSINESS_CHECK_IN', target: 1 },
   },
 ];
 

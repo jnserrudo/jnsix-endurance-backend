@@ -294,11 +294,67 @@ const redeemReward = async (userId, rewardId) => {
   };
 };
 
+/**
+ * Preview de costo con descuentos de featured + racha + competencia (sin canjear).
+ */
+const previewUserPricing = async (userId, reward) => {
+  const baseCost = Math.max(0, Number(reward.pointsCost) || 0);
+  const featuredCost = getEffectivePointsCost(reward);
+  const featuredDiscountPct =
+    baseCost > 0 && featuredCost < baseCost
+      ? Math.round((1 - featuredCost / baseCost) * 100)
+      : 0;
+
+  let effectiveCost = featuredCost;
+  let streakBonusApplied = false;
+  let currentStreak = 0;
+  let competitionBonusApplied = false;
+  let competitionBonus = null;
+
+  if (userId) {
+    const streak = await prisma.streak.findUnique({ where: { userId } });
+    currentStreak = streak?.currentStreak || 0;
+    if (currentStreak >= STREAK_BONUS_THRESHOLD && effectiveCost > 0) {
+      effectiveCost = Math.max(0, Math.round(effectiveCost * (1 - STREAK_BONUS_PCT / 100)));
+      streakBonusApplied = true;
+    }
+    competitionBonus = await getCompetitionProximityBonus(prisma, userId);
+    if (competitionBonus.applied && effectiveCost > 0) {
+      effectiveCost = Math.max(
+        0,
+        Math.round(effectiveCost * (1 - COMPETITION_BONUS_PCT / 100))
+      );
+      competitionBonusApplied = true;
+    }
+  }
+
+  return {
+    baseCost,
+    featuredCost,
+    featuredDiscountPct,
+    effectiveCost,
+    streakBonusApplied,
+    streakBonusPct: streakBonusApplied ? STREAK_BONUS_PCT : 0,
+    currentStreak,
+    competitionBonusApplied,
+    competitionBonusPct: competitionBonusApplied ? COMPETITION_BONUS_PCT : 0,
+    competitionBonus: competitionBonusApplied
+      ? {
+          pct: COMPETITION_BONUS_PCT,
+          reason: competitionBonus.reason,
+          competitionName: competitionBonus.competitionName,
+          trainingProgressPct: competitionBonus.trainingProgressPct,
+        }
+      : null,
+  };
+};
+
 module.exports = {
   getEffectivePointsCost,
   isRewardAvailable,
   redeemReward,
   getCompetitionProximityBonus,
+  previewUserPricing,
   STREAK_BONUS_THRESHOLD,
   STREAK_BONUS_PCT,
   COMPETITION_PROXIMITY_DAYS,

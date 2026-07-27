@@ -295,20 +295,24 @@ class GamificationService {
     await this.ensureBadges();
     const newlyEarned = [];
 
-    const [activityCount, totalDistanceAgg, postCount, streakRow, duelWins] = await Promise.all([
-      prisma.activity.count({ where: { userId } }),
-      prisma.activity.aggregate({ where: { userId }, _sum: { distanceKm: true } }),
-      prisma.post.count({ where: { userId, isActive: true } }),
-      hints.streak != null
-        ? Promise.resolve({ currentStreak: hints.streak })
-        : prisma.streak.findUnique({ where: { userId } }),
-      prisma.duel.count({
-        where: {
-          status: 'COMPLETED',
-          winnerId: userId,
-        },
-      }),
-    ]);
+    const [activityCount, totalDistanceAgg, postCount, streakRow, duelWins, checkInCount] =
+      await Promise.all([
+        prisma.activity.count({ where: { userId } }),
+        prisma.activity.aggregate({ where: { userId }, _sum: { distanceKm: true } }),
+        prisma.post.count({ where: { userId, isActive: true } }),
+        hints.streak != null
+          ? Promise.resolve({ currentStreak: hints.streak })
+          : prisma.streak.findUnique({ where: { userId } }),
+        prisma.duel.count({
+          where: {
+            status: 'COMPLETED',
+            winnerId: userId,
+          },
+        }),
+        hints.checkInCount != null
+          ? Promise.resolve(hints.checkInCount)
+          : prisma.businessCheckIn.count({ where: { userId } }),
+      ]);
 
     const totalDistance = totalDistanceAgg._sum.distanceKm || 0;
     const streak = streakRow?.currentStreak || 0;
@@ -322,6 +326,7 @@ class GamificationService {
       { code: 'distance_100', ok: totalDistance >= 100 },
       { code: 'distance_500', ok: totalDistance >= 500 },
       { code: 'duel_win', ok: duelWins >= 1 },
+      { code: 'local_client', ok: checkInCount >= 1 },
     ];
 
     for (const c of checks) {
@@ -593,6 +598,82 @@ class GamificationService {
 
   async getTodayMission(userId) {
     return getTodayMissionForUser(userId);
+  }
+
+  /**
+   * Check-in en negocio: badge "Cliente local" + progreso misiones WEEKLY/DAILY BUSINESS_CHECK_IN.
+   */
+  async onBusinessCheckIn(userId, businessId) {
+    const newly = [];
+    try {
+      await this.ensureBadges();
+      const badge = await this.awardBadgeByCode(userId, 'local_client');
+      if (badge) newly.push(badge);
+
+      const now = new Date();
+      const missions = await prisma.mission.findMany({
+        where: {
+          AND: [
+            activeMissionWhere(now),
+            {
+              OR: [
+                { type: 'BUSINESS_CHECK_IN' },
+                { type: 'WEEKLY_BUSINESS_CHECK_IN' },
+                { type: 'DAILY_BUSINESS_CHECK_IN' },
+              ],
+            },
+          ],
+        },
+      });
+
+      for (const mission of missions) {
+        let userMission = await prisma.userMission.findFirst({
+          where: { userId, missionId: mission.id },
+        });
+        if (userMission?.completed) continue;
+
+        const newProgress = (userMission?.currentProgress || 0) + 1;
+        const completed = newProgress >= mission.targetValue;
+        const wasCompleted = userMission?.completed || false;
+
+        if (!userMission) {
+          userMission = await prisma.userMission.create({
+            data: {
+              user: { connect: { id: userId } },
+              mission: { connect: { id: mission.id } },
+              currentProgress: newProgress,
+              completed,
+              completedAt: completed ? new Date() : null,
+            },
+          });
+        } else {
+          userMission = await prisma.userMission.update({
+            where: { id: userMission.id },
+            data: {
+              currentProgress: newProgress,
+              completed,
+              completedAt: !wasCompleted && completed ? new Date() : userMission.completedAt,
+            },
+          });
+        }
+
+        if (completed && !wasCompleted && mission.rewardPts > 0) {
+          const existingMissionScore = await prisma.scoreEvent.findFirst({
+            where: { userId, missionId: mission.id },
+          });
+          if (!existingMissionScore) {
+            await scoringService.awardPoints(userId, {
+              points: mission.rewardPts,
+              reason: copy.missionCompleted(mission.name),
+              missionId: mission.id,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[Gamification] onBusinessCheckIn:', err.message);
+    }
+    return { badges: newly, businessId };
   }
 }
 

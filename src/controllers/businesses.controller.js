@@ -3,21 +3,69 @@ const rewardsService = require('../services/rewards.service');
 const scoringService = require('../services/scoring.service');
 const { notify } = require('../services/notifications.service');
 
+const CHECK_IN_POINTS = 5;
+const CHECK_IN_RADIUS_M = 500;
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function countFriendsRedeemed(userId, businessId) {
+  if (!userId) return 0;
+  const friendships = await prisma.friendship.findMany({
+    where: {
+      status: 'ACCEPTED',
+      OR: [{ userId }, { friendId: userId }]
+    },
+    select: { userId: true, friendId: true }
+  });
+  const friendIds = [
+    ...new Set(
+      friendships.map((f) => (f.userId === userId ? f.friendId : f.userId))
+    )
+  ];
+  if (friendIds.length === 0) return 0;
+  const distinct = await prisma.redemption.findMany({
+    where: {
+      businessId,
+      userId: { in: friendIds },
+      status: { in: ['ACTIVE', 'USED'] }
+    },
+    select: { userId: true },
+    distinct: ['userId']
+  });
+  return distinct.length;
+}
+
 const listBusinesses = async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
     const search = req.query.search?.trim();
+    const category = req.query.category?.trim();
     const skip = (page - 1) * limit;
 
     const hasCoords = req.query.hasCoords === '1' || req.query.hasCoords === 'true';
+    const withRewards =
+      req.query.withRewards === '1' || req.query.withRewards === 'true';
 
     const where = {
       status: 'APPROVED',
       isActive: true,
       ...(search ? { name: { contains: search } } : {}),
+      ...(category ? { category: { equals: category } } : {}),
       ...(hasCoords
         ? { latitude: { not: null }, longitude: { not: null } }
+        : {}),
+      ...(withRewards
+        ? { rewards: { some: { status: 'ACTIVE' } } }
         : {})
     };
 
@@ -27,14 +75,43 @@ const listBusinesses = async (req, res) => {
         skip,
         take: limit,
         include: {
-          _count: { select: { rewards: { where: { status: 'ACTIVE' } } } }
+          _count: { select: { rewards: { where: { status: 'ACTIVE' } } } },
+          rewards: {
+            where: { status: 'ACTIVE' },
+            select: { pointsCost: true },
+            orderBy: { pointsCost: 'asc' },
+            take: 1
+          }
         },
         orderBy: { name: 'asc' }
       }),
       prisma.business.count({ where })
     ]);
 
-    res.json({ businesses, total, page, limit });
+    const qLat = parseFloat(req.query.nearLat ?? req.query.lat);
+    const qLng = parseFloat(req.query.nearLng ?? req.query.lng);
+    const hasNear = Number.isFinite(qLat) && Number.isFinite(qLng);
+
+    const enriched = businesses.map((b) => {
+      const minPointsCost = b.rewards?.[0]?.pointsCost ?? null;
+      const { rewards, ...rest } = b;
+      let distanceKm = null;
+      if (hasNear && b.latitude != null && b.longitude != null) {
+        distanceKm = haversineKm(qLat, qLng, b.latitude, b.longitude);
+      }
+      return { ...rest, minPointsCost, distanceKm };
+    });
+
+    if (hasNear) {
+      enriched.sort((a, b) => {
+        if (a.distanceKm == null && b.distanceKm == null) return 0;
+        if (a.distanceKm == null) return 1;
+        if (b.distanceKm == null) return -1;
+        return a.distanceKm - b.distanceKm;
+      });
+    }
+
+    res.json({ businesses: enriched, total, page, limit });
   } catch (error) {
     console.error('[ERROR] listBusinesses:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -54,10 +131,51 @@ const getBusinessById = async (req, res) => {
     });
 
     if (!business) return res.status(404).json({ error: 'Negocio no encontrado' });
-    const checkInsTotal = await prisma.businessCheckIn.count({
-      where: { businessId: business.id }
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [checkInsTotal, checkInsToday, userCheckInToday] = await Promise.all([
+      prisma.businessCheckIn.count({ where: { businessId: business.id } }),
+      prisma.businessCheckIn.count({
+        where: { businessId: business.id, createdAt: { gte: todayStart } }
+      }),
+      req.user?.id
+        ? prisma.businessCheckIn.findFirst({
+            where: {
+              businessId: business.id,
+              userId: req.user.id,
+              createdAt: { gte: todayStart }
+            }
+          })
+        : null
+    ]);
+
+    let distanceKm = null;
+    const qLat = parseFloat(req.query.lat);
+    const qLng = parseFloat(req.query.lng);
+    if (
+      Number.isFinite(qLat) &&
+      Number.isFinite(qLng) &&
+      business.latitude != null &&
+      business.longitude != null
+    ) {
+      distanceKm = haversineKm(qLat, qLng, business.latitude, business.longitude);
+    }
+
+    const friendsRedeemedCount = await countFriendsRedeemed(req.user?.id, business.id);
+
+    res.json({
+      ...business,
+      checkInsTotal,
+      checkInsToday,
+      userCheckedInToday: Boolean(userCheckInToday),
+      activeRewardsCount: business.rewards?.length || 0,
+      distanceKm,
+      checkInRadiusM: CHECK_IN_RADIUS_M,
+      requiresProximity: business.latitude != null && business.longitude != null,
+      friendsRedeemedCount
     });
-    res.json({ ...business, checkInsTotal });
   } catch (error) {
     console.error('[ERROR] getBusinessById:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -89,7 +207,23 @@ const updateMyBusiness = async (req, res) => {
       return res.status(403).json({ error: 'Tu cuenta de negocio fue rechazada' });
     }
 
-    const { name, description, address, city, country, websiteUrl, instagramUrl, latitude, longitude } = req.body;
+    const {
+      name,
+      description,
+      highlight,
+      category,
+      tags,
+      hours,
+      phone,
+      galleryUrls,
+      address,
+      city,
+      country,
+      websiteUrl,
+      instagramUrl,
+      latitude,
+      longitude
+    } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'El nombre del negocio es obligatorio' });
 
     const lat =
@@ -97,10 +231,25 @@ const updateMyBusiness = async (req, res) => {
     const lng =
       longitude === '' || longitude == null ? null : Number(longitude);
     if (lat != null && Number.isNaN(lat)) {
-      return res.status(400).json({ error: 'Latitud inv?lida' });
+      return res.status(400).json({ error: 'Latitud inválida' });
     }
     if (lng != null && Number.isNaN(lng)) {
-      return res.status(400).json({ error: 'Longitud inv?lida' });
+      return res.status(400).json({ error: 'Longitud inválida' });
+    }
+
+    let tagsValue = undefined;
+    if (tags !== undefined) {
+      if (Array.isArray(tags)) tagsValue = tags.map((t) => String(t).trim()).filter(Boolean).slice(0, 12);
+      else if (typeof tags === 'string') {
+        tagsValue = tags.split(',').map((t) => t.trim()).filter(Boolean).slice(0, 12);
+      } else if (tags == null) tagsValue = null;
+    }
+
+    let galleryValue = undefined;
+    if (galleryUrls !== undefined) {
+      if (Array.isArray(galleryUrls)) {
+        galleryValue = galleryUrls.map((u) => String(u).trim()).filter(Boolean).slice(0, 5);
+      } else if (galleryUrls == null) galleryValue = null;
     }
 
     const updated = await prisma.business.update({
@@ -108,6 +257,12 @@ const updateMyBusiness = async (req, res) => {
       data: {
         name: name.trim(),
         description: description ?? business.description,
+        ...(highlight !== undefined ? { highlight: highlight?.trim()?.slice(0, 160) || null } : {}),
+        ...(category !== undefined ? { category: category?.trim() || null } : {}),
+        ...(tagsValue !== undefined ? { tags: tagsValue } : {}),
+        ...(hours !== undefined ? { hours: hours?.trim()?.slice(0, 120) || null } : {}),
+        ...(phone !== undefined ? { phone: phone?.trim() || null } : {}),
+        ...(galleryValue !== undefined ? { galleryUrls: galleryValue } : {}),
         address: address ?? business.address,
         city: city ?? business.city,
         country: country ?? business.country,
@@ -393,6 +548,8 @@ const getMyAnalytics = async (req, res) => {
     const redemptionsThisPeriod = redemptions.length;
     const checkInsThisPeriod = checkIns.length;
     const pointsGranted = checkInsThisPeriod * CHECK_IN_POINTS;
+    const todayKey = dateKey(new Date());
+    const checkInsToday = dailyByDate.get(todayKey)?.checkIns || 0;
 
     res.json({
       periodDays,
@@ -401,6 +558,7 @@ const getMyAnalytics = async (req, res) => {
       redemptionsThisPeriod,
       uniqueAthletes: athleteIds.size,
       checkInsThisPeriod,
+      checkInsToday,
       pointsGranted,
       topRewards: Array.from(rewardCounts.values())
         .sort((a, b) => b.redemptionCount - a.redemptionCount)
@@ -419,17 +577,53 @@ const getMyAnalytics = async (req, res) => {
   }
 };
 
-const CHECK_IN_POINTS = 5;
-
 const checkIn = async (req, res) => {
   try {
     const userId = req.user.id;
     const businessId = req.params.id;
+    const clientLat = parseFloat(req.body?.latitude ?? req.body?.lat);
+    const clientLng = parseFloat(req.body?.longitude ?? req.body?.lng);
 
     const business = await prisma.business.findFirst({
-      where: { id: businessId, status: 'APPROVED', isActive: true }
+      where: { id: businessId, status: 'APPROVED', isActive: true },
+      include: {
+        rewards: {
+          where: { status: 'ACTIVE' },
+          orderBy: { pointsCost: 'asc' },
+          take: 8
+        }
+      }
     });
     if (!business) return res.status(404).json({ error: 'Negocio no encontrado' });
+
+    const requiresProximity =
+      business.latitude != null && business.longitude != null;
+    let distanceM = null;
+
+    if (requiresProximity) {
+      if (!Number.isFinite(clientLat) || !Number.isFinite(clientLng)) {
+        return res.status(400).json({
+          error: 'Necesitamos tu ubicación para el check-in en este local',
+          code: 'LOCATION_REQUIRED',
+          checkInRadiusM: CHECK_IN_RADIUS_M
+        });
+      }
+      distanceM =
+        haversineKm(clientLat, clientLng, business.latitude, business.longitude) * 1000;
+      if (distanceM > CHECK_IN_RADIUS_M) {
+        const km = distanceM / 1000;
+        const human =
+          km >= 1
+            ? `${km.toFixed(1).replace('.', ',')} km`
+            : `${Math.round(distanceM)} m`;
+        return res.status(403).json({
+          error: `Estás a ${human}; acercate a menos de ${CHECK_IN_RADIUS_M} m para el check-in`,
+          code: 'TOO_FAR',
+          distanceM: Math.round(distanceM),
+          checkInRadiusM: CHECK_IN_RADIUS_M
+        });
+      }
+    }
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -456,10 +650,46 @@ const checkIn = async (req, res) => {
       reason: `Check-in en ${business.name}`
     });
 
+    const totalPoints =
+      award.scoreResult?.userScore?.totalPoints ??
+      (await prisma.userScore.findUnique({ where: { userId } }))?.totalPoints ??
+      0;
+
+    const redeemableRewards = (business.rewards || []).map((r) => {
+      const effectiveCost = rewardsService.getEffectivePointsCost(r);
+      return {
+        id: r.id,
+        title: r.title,
+        imageUrl: r.imageUrl,
+        pointsCost: r.pointsCost,
+        effectiveCost,
+        pointsNeeded: Math.max(0, effectiveCost - totalPoints),
+        canRedeem: totalPoints >= effectiveCost
+      };
+    });
+
+    // Gamification hook (missions/badges) — best-effort
+    try {
+      const gamification = require('../services/gamification.service');
+      if (typeof gamification.onBusinessCheckIn === 'function') {
+        await gamification.onBusinessCheckIn(userId, businessId);
+      }
+    } catch (gErr) {
+      console.warn('[checkIn] gamification:', gErr.message);
+    }
+
     res.status(201).json({
       checkIn: checkInRow,
       pointsAwarded: CHECK_IN_POINTS,
-      newTotalPoints: award.scoreResult?.userScore?.totalPoints ?? null
+      newTotalPoints: totalPoints,
+      distanceM: distanceM != null ? Math.round(distanceM) : null,
+      requiresProximity,
+      redeemableRewards,
+      business: {
+        id: business.id,
+        name: business.name,
+        logoUrl: business.logoUrl
+      }
     });
   } catch (error) {
     console.error('[ERROR] checkIn:', error);
@@ -577,6 +807,63 @@ const listMySettlements = async (req, res) => {
   }
 };
 
+const featureMyReward = async (req, res) => {
+  try {
+    const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
+    if (business.status !== 'APPROVED') {
+      return res.status(403).json({ error: 'El negocio debe estar aprobado' });
+    }
+
+    const reward = await prisma.reward.findFirst({
+      where: { id: req.params.id, businessId: business.id }
+    });
+    if (!reward) return res.status(404).json({ error: 'Premio no encontrado' });
+    if (reward.status !== 'ACTIVE') {
+      return res.status(400).json({ error: 'Solo se pueden destacar premios activos' });
+    }
+
+    const days = Math.min(Math.max(parseInt(req.body?.days, 10) || 7, 1), 30);
+    const discountPct = Math.min(
+      Math.max(parseInt(req.body?.discountPct, 10) || 10, 0),
+      50
+    );
+    const featuredUntil = new Date();
+    featuredUntil.setDate(featuredUntil.getDate() + days);
+
+    // Un solo featured activo por negocio a la vez
+    await prisma.reward.updateMany({
+      where: {
+        businessId: business.id,
+        isFeatured: true,
+        id: { not: reward.id }
+      },
+      data: {
+        isFeatured: false,
+        featuredUntil: null,
+        featuredDiscountPct: null
+      }
+    });
+
+    const updated = await prisma.reward.update({
+      where: { id: reward.id },
+      data: {
+        isFeatured: true,
+        featuredUntil,
+        featuredDiscountPct: discountPct
+      }
+    });
+
+    res.json({
+      reward: updated,
+      message: `Destacado hasta ${featuredUntil.toISOString().slice(0, 10)} (−${discountPct}%)`
+    });
+  } catch (error) {
+    console.error('[ERROR] featureMyReward:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
 module.exports = {
   listBusinesses,
   getBusinessById,
@@ -594,4 +881,5 @@ module.exports = {
   lookupRedemption,
   validateRedemption,
   listMySettlements,
+  featureMyReward,
 };

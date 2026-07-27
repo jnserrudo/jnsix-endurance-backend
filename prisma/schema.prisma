@@ -911,6 +911,12 @@ model Business {
   userId          String         @unique @map("user_id")
   name            String
   description     String?        @db.Text
+  highlight       String?        @db.VarChar(160)
+  category        String?
+  tags            Json?
+  hours           String?        @db.VarChar(120)
+  phone           String?
+  galleryUrls     Json?          @map("gallery_urls")
   logoUrl         String?        @map("logo_url")
   coverUrl        String?        @map("cover_url")
   address         String?
@@ -931,8 +937,10 @@ model Business {
   rewards         Reward[]
   redemptions     Redemption[]
   settlements     Settlement[]
+  checkIns        BusinessCheckIn[]
 
   @@index([status, isActive])
+  @@index([category])
   @@map("businesses")
 }
 
@@ -1744,10 +1752,12 @@ model BusinessCheckIn {
   businessId String   @map("business_id")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([businessId])
+  @@index([businessId, createdAt])
   @@map("business_check_ins")
 }
 

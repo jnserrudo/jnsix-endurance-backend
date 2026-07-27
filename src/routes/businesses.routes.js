@@ -17,6 +17,7 @@ router.get('/me/rewards', authenticateToken, requireRole('BUSINESS'), businesses
 router.post('/me/rewards', authenticateToken, requireRole('BUSINESS'), businessesController.createMyReward);
 router.put('/me/rewards/:id', authenticateToken, requireRole('BUSINESS'), businessesController.updateMyReward);
 router.patch('/me/rewards/:id/status', authenticateToken, requireRole('BUSINESS'), businessesController.updateMyRewardStatus);
+router.patch('/me/rewards/:id/feature', authenticateToken, requireRole('BUSINESS'), businessesController.featureMyReward);
 router.post('/me/rewards/:id/image', authenticateToken, requireRole('BUSINESS'), uploadImage.single('image'), businessesController.uploadRewardImage);
 
 router.get('/me/redemptions', authenticateToken, requireRole('BUSINESS'), businessesController.listMyRedemptions);

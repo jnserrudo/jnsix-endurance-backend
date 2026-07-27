@@ -97,6 +97,17 @@ const getRewardById = async (req, res) => {
 
     const effectiveCost = rewardsService.getEffectivePointsCost(reward);
     let userContext = null;
+    let pricing = {
+      baseCost: reward.pointsCost,
+      featuredCost: effectiveCost,
+      featuredDiscountPct:
+        reward.isFeatured && reward.featuredDiscountPct ? reward.featuredDiscountPct : 0,
+      effectiveCost,
+      streakBonusApplied: false,
+      streakBonusPct: 0,
+      competitionBonusApplied: false,
+      competitionBonusPct: 0,
+    };
 
     // Cualquier usuario autenticado que no sea BUSINESS (atleta o admin en smoke test)
     if (req.user && req.user.role !== 'BUSINESS') {
@@ -112,17 +123,24 @@ const getRewardById = async (req, res) => {
 
       const canRoleRedeem = req.user.role === 'ATHLETE' || req.user.role === 'ADMIN';
 
+      pricing = await rewardsService.previewUserPricing(req.user.id, reward);
+
       userContext = {
         userPoints: totalPoints,
-        pointsNeeded: Math.max(0, effectiveCost - totalPoints),
-        canRedeem: canRoleRedeem && totalPoints >= effectiveCost && meetsRank && isPublic,
+        pointsNeeded: Math.max(0, pricing.effectiveCost - totalPoints),
+        canRedeem:
+          canRoleRedeem &&
+          totalPoints >= pricing.effectiveCost &&
+          meetsRank &&
+          isPublic,
         meetsRankRequirement: meetsRank,
         requiredRankOrder: reward.minRankOrder,
-        inWishlist: !!inWishlist
+        inWishlist: !!inWishlist,
+        ...pricing,
       };
     }
 
-    res.json({ ...reward, effectiveCost, userContext });
+    res.json({ ...reward, effectiveCost: pricing.effectiveCost, pricing, userContext });
   } catch (error) {
     console.error('[ERROR] getRewardById:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
