@@ -534,12 +534,17 @@ const refreshToken = async (req, res) => {
       return res.status(404).json({ error: 'No hemos podido encontrar tu cuenta.' });
     }
 
+    // Sin esto una cuenta bloqueada podría renovar su sesión indefinidamente.
+    if (user.isActive === false) {
+      return res.status(403).json({ error: 'Tu cuenta está suspendida. Escribinos para revisarlo.' });
+    }
+
     const newToken = generateToken(user.id, user.email, user.role);
 
     res.json({ token: newToken });
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'No pudimos renovar tu sesión. Volvé a iniciar sesión.' });
   }
 };
 

@@ -1,8 +1,11 @@
 const crypto = require('crypto');
 const prisma = require('../lib/prisma');
 const { awardPoints } = require('./scoring.service');
+const scoringConfig = require('./scoringConfig.service');
 
-const REFERRAL_CODE_PREFIX = 'JNSIX';
+// Solo afecta a los códigos nuevos: los `JNSIX-XXXX` ya emitidos se siguen
+// resolviendo porque la validación busca el código en la base, no por prefijo.
+const REFERRAL_CODE_PREFIX = 'MERYT';
 const MONTHLY_SUCCESS_CAP = 10;
 
 class ReferralValidationError extends Error {
@@ -144,11 +147,24 @@ async function maybeRewardOnFirstActivity(userId, activityId) {
   });
   if (!rewardDecision.reward) return { rewarded: false, reason: rewardDecision.reason };
 
+  const [inviterPoints, inviteePoints] = await Promise.all([
+    scoringConfig.getValue('referral.inviter_points'),
+    scoringConfig.getValue('referral.invitee_points'),
+  ]).then((values) => values.map((v) => Math.round(v)));
+
   await Promise.all([
-    awardPoints(referral.inviterId, { points: 100, reason: 'referral_invite_success' }),
-    awardPoints(userId, { points: 50, reason: 'referral_welcome_bonus' }),
+    awardPoints(referral.inviterId, {
+      points: inviterPoints,
+      reason: 'referral_invite_success',
+      source: 'REFERRAL',
+    }),
+    awardPoints(userId, {
+      points: inviteePoints,
+      reason: 'referral_welcome_bonus',
+      source: 'REFERRAL',
+    }),
   ]);
-  return { rewarded: true, inviterPoints: 100, inviteePoints: 50 };
+  return { rewarded: true, inviterPoints, inviteePoints };
 }
 
 async function getMyReferralStats(userId) {

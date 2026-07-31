@@ -133,6 +133,14 @@ const initSocket = (httpServer) => {
 
         io.to(`room:${roomId}`).emit('chat:new_message', message);
         io.to(`room:${roomId}`).emit('chat:message', message);
+
+        try {
+          // require diferido: chat.controller importa este servicio.
+          const { notifyRoomMembers } = require('../controllers/chat.controller');
+          await notifyRoomMembers(roomId, userId, message);
+        } catch (notifyError) {
+          console.warn('[Socket] chat notify failed:', notifyError.message);
+        }
       } catch (error) {
         socket.emit('error', { message: 'Failed to send message', detail: error.message });
       }

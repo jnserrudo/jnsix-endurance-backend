@@ -191,7 +191,7 @@ const sendWeeklyReport = async (email, data, nombreAdmin) => {
   const text = `Reporte Semanal. Usuarios Activos: ${data.activeUsers}. Actividades Sincronizadas: ${data.totalActivities}.`;
   const html = `
     <div style="font-family: Arial, sans-serif; background-color: #1a1a1a; color: #ffffff; padding: 30px;">
-      <h1 style="color: #2196F3;">Reporte Semanal JNSIX</h1>
+      <h1 style="color: #2196F3;">Reporte Semanal ${APP_NAME}</h1>
       <p style="font-size: 16px;">Hola ${nombreAdmin}, aquí tienes el resumen del periodo: <strong>${data.period}</strong></p>
       
       <div style="display: flex; gap: 20px; margin-top: 30px;">
@@ -210,7 +210,7 @@ const sendWeeklyReport = async (email, data, nombreAdmin) => {
 };
 
 const sendBusinessPendingEmail = async (email, businessName) => {
-  const subject = 'Solicitud recibida — JNSIX Club de Beneficios';
+  const subject = `Solicitud recibida — ${APP_NAME} Club de Beneficios`;
   const text = `Hola, recibimos la solicitud de "${businessName}". Un administrador la revisará pronto. Te avisaremos cuando puedas publicar beneficios.`;
   const html = `
     <div style="font-family: Arial, sans-serif; background-color: #1a1a1a; color: #ffffff; padding: 30px; text-align: center;">

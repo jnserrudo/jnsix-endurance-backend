@@ -6,6 +6,40 @@ const { promisify } = require('util');
 
 const gpxParseAsync = promisify(gpxParse.parseGpx);
 
+/**
+ * Archivo inválido del usuario, no falla del servidor: el controlador lo
+ * traduce a 400 en vez de a un 500 genérico.
+ */
+class FileParseError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'FileParseError';
+    this.status = 400;
+  }
+}
+
+/**
+ * Busca el pulso dentro de las <extensions> de un trackpoint GPX.
+ * El prefijo de namespace cambia según el reloj (`gpxtpx:hr`, `ns3:hr`, `hr`),
+ * así que se compara solo el nombre local y se recorre en profundidad.
+ */
+function findHrInExtensions(node, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 6) return null;
+
+  for (const [key, value] of Object.entries(node)) {
+    const localName = key.includes(':') ? key.split(':').pop() : key;
+    if (localName.toLowerCase() === 'hr') {
+      const bpm = Number(value);
+      if (Number.isFinite(bpm) && bpm > 0) return Math.round(bpm);
+    }
+    if (value && typeof value === 'object') {
+      const nested = findHrInExtensions(value, depth + 1);
+      if (nested != null) return nested;
+    }
+  }
+  return null;
+}
+
 /** FIT sport enums (Garmin/Coros) → ActivityType */
 const FIT_SPORT_NUM = {
   0: 'OTHER', // generic
@@ -18,7 +52,27 @@ const FIT_SPORT_NUM = {
 };
 
 class FileParserService {
+  /**
+   * Todo .FIT arranca con un header de 12 o 14 bytes cuyos bytes 8..11 son la
+   * firma ASCII ".FIT". Validarlo acá es clave: con `force: true` la librería
+   * intenta interpretar cualquier basura y se come varios segundos de CPU
+   * *sincrónicos* (16 s con 1 MB de relleno), bloqueando todo el proceso.
+   */
+  assertLooksLikeFit(buffer) {
+    if (!Buffer.isBuffer(buffer) || buffer.length < 14) {
+      throw new FileParseError('FIT parse error: el archivo está vacío o incompleto');
+    }
+
+    const headerSize = buffer.readUInt8(0);
+    const signature = buffer.toString('ascii', 8, 12);
+    if ((headerSize !== 12 && headerSize !== 14) || signature !== '.FIT') {
+      throw new FileParseError('FIT parse error: el archivo no parece un .FIT válido');
+    }
+  }
+
   async parseFitFile(buffer) {
+    this.assertLooksLikeFit(buffer);
+
     return new Promise((resolve, reject) => {
       const fitParser = new FitParser({
         force: true,
@@ -31,7 +85,14 @@ class FileParserService {
 
       fitParser.parse(buffer, (error, data) => {
         if (error) {
-          return reject(new Error(`FIT parse error: ${error.message}`));
+          // La librería a veces rechaza con un string suelto, no con un Error:
+          // sin esto el usuario terminaba viendo "FIT parse error: undefined".
+          const detalle = typeof error === 'string' ? error : error?.message;
+          return reject(
+            new FileParseError(
+              `FIT parse error: ${detalle || 'no pudimos leer el contenido del archivo'}`
+            )
+          );
         }
 
         try {
@@ -226,13 +287,42 @@ class FileParserService {
       }
 
       const points = track.segments[0];
-      return this.extractGpxData(data, points);
+      return this.extractGpxData(data, points, this.extractGpxHeartRates(gpxString));
     } catch (error) {
-      throw new Error(`GPX parse error: ${error.message}`);
+      const detalle = typeof error === 'string' ? error : error?.message;
+      throw new FileParseError(`GPX parse error: ${detalle || 'archivo ilegible'}`);
     }
   }
 
-  extractGpxData(data, points) {
+  /**
+   * `gpx-parse` descarta las <extensions>, así que el pulso se lee aparte del
+   * XML crudo y se aparea por posición con los trackpoints del primer segmento.
+   * Devuelve [] si el archivo no trae pulso: nunca hace fallar el import.
+   */
+  extractGpxHeartRates(gpxString) {
+    try {
+      const parser = new XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: '@_',
+        trimValues: true,
+      });
+      const xml = parser.parse(gpxString);
+
+      let trk = xml?.gpx?.trk;
+      if (Array.isArray(trk)) trk = trk[0];
+      let seg = trk?.trkseg;
+      if (Array.isArray(seg)) seg = seg[0];
+      let trkpts = seg?.trkpt;
+      if (!trkpts) return [];
+      if (!Array.isArray(trkpts)) trkpts = [trkpts];
+
+      return trkpts.map((pt) => findHrInExtensions(pt?.extensions));
+    } catch {
+      return [];
+    }
+  }
+
+  extractGpxData(data, points, hrByIndex = []) {
     let totalDistance = 0;
     let totalElevationGain = 0;
     let minElevation = Infinity;
@@ -252,7 +342,8 @@ class FileParserService {
         }
       }
 
-      if (point.hr) heartRates.push(point.hr);
+      const hr = point.hr ?? hrByIndex[i];
+      if (hr) heartRates.push(hr);
 
       if (i > 0) {
         totalDistance += this.calculateDistance(
@@ -437,7 +528,8 @@ class FileParserService {
         })),
       };
     } catch (error) {
-      throw new Error(`TCX parse error: ${error.message}`);
+      const detalle = typeof error === 'string' ? error : error?.message;
+      throw new FileParseError(`TCX parse error: ${detalle || 'archivo ilegible'}`);
     }
   }
 
@@ -671,3 +763,4 @@ class FileParserService {
 }
 
 module.exports = new FileParserService();
+module.exports.FileParseError = FileParseError;

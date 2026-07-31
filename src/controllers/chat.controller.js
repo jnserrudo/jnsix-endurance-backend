@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const { emitToRoom } = require('../services/socket.service');
+const { notify } = require('../services/notifications.service');
 
 const USER_PUBLIC_SELECT = {
   id: true,
@@ -9,6 +10,68 @@ const USER_PUBLIC_SELECT = {
 };
 
 const emailPrefix = (email) => (email ? email.split('@')[0] : 'Usuario');
+
+const MESSAGE_PREVIEW_LIMIT = 140;
+
+/**
+ * Manda push/in-app `CHAT_MESSAGE` al resto de la sala.
+ * Lo usan tanto el endpoint REST como el handler de socket, así que un mismo
+ * mensaje nunca genera dos notificaciones (mismo `dedupeKey`).
+ */
+const notifyRoomMembers = async (roomId, senderId, message) => {
+  const room = await prisma.chatRoom.findUnique({
+    where: { id: roomId },
+    include: { members: { select: { userId: true } } }
+  });
+  if (!room) return;
+
+  const recipients = room.members.map((m) => m.userId).filter((id) => id !== senderId);
+  if (recipients.length === 0) return;
+
+  const sender = await prisma.user.findUnique({
+    where: { id: senderId },
+    select: { username: true, email: true }
+  });
+  const senderName = sender?.username || emailPrefix(sender?.email);
+
+  let scopeName = null;
+  if (room.type === 'GROUP' && room.referenceId) {
+    const group = await prisma.group.findUnique({
+      where: { id: room.referenceId },
+      select: { name: true }
+    });
+    scopeName = group?.name || null;
+  } else if (room.type === 'COMMUNITY' && room.referenceId) {
+    const community = await prisma.community.findUnique({
+      where: { id: room.referenceId },
+      select: { name: true }
+    });
+    scopeName = community?.name || null;
+  }
+
+  const title = scopeName ? `${senderName} en ${scopeName}` : senderName;
+  const body = (message.content || 'Te mandó un mensaje').slice(0, MESSAGE_PREVIEW_LIMIT);
+
+  await Promise.all(
+    recipients.map((userId) =>
+      notify(userId, 'CHAT_MESSAGE', {
+        title,
+        body,
+        payload: {
+          roomId,
+          messageId: message.id,
+          roomType: room.type,
+          referenceId: room.referenceId,
+          senderId
+        },
+        dedupeKey: `chat:${roomId}:${message.id}:${userId}`,
+        dedupeSeconds: 10
+      }).catch((error) => {
+        console.warn('[chat] notify failed:', error.message);
+      })
+    )
+  );
+};
 
 const listRooms = async (req, res) => {
   try {
@@ -420,6 +483,12 @@ const sendMessage = async (req, res) => {
       // Socket puede no estar inicializado en tests
     }
 
+    try {
+      await notifyRoomMembers(roomId, userId, message);
+    } catch (error) {
+      console.warn('[chat] notifyRoomMembers failed:', error.message);
+    }
+
     res.status(201).json(message);
   } catch (error) {
     console.error('[ERROR]', error);
@@ -452,6 +521,7 @@ const markAsRead = async (req, res) => {
 };
 
 module.exports = {
+  notifyRoomMembers,
   listRooms,
   getOrCreateDirectRoom,
   getOrCreateGroupRoom,

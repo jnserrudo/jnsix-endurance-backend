@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const gamificationService = require('../services/gamification.service');
+const seasonService = require('../services/season.service');
 
 const getStreak = async (req, res) => {
   try {
@@ -184,6 +185,66 @@ const getCurrentSeason = async (req, res) => {
   }
 };
 
+const handleSeasonError = (res, error, fallback) => {
+  if (error instanceof seasonService.SeasonError) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  console.error('[SEASON ERROR]', error);
+  return res.status(500).json({ error: fallback });
+};
+
+/** Quién cobraría qué si la temporada se cerrara ahora. No tiene efectos. */
+const previewSeasonClose = async (req, res) => {
+  try {
+    res.json(await seasonService.previewClose(req.params.id));
+  } catch (error) {
+    handleSeasonError(res, error, 'No pudimos calcular el cierre de la temporada.');
+  }
+};
+
+const closeSeason = async (req, res) => {
+  try {
+    const result = await seasonService.closeSeason(req.params.id, req.user.id);
+    res.json({
+      message: `Temporada ${result.season.name} cerrada. Premiamos a ${result.podium.length} atletas.`,
+      ...result,
+    });
+  } catch (error) {
+    handleSeasonError(res, error, 'No pudimos cerrar la temporada.');
+  }
+};
+
+/**
+ * Resultado final de una temporada cerrada. Si todavía está abierta devolvemos
+ * la tabla en vivo, así la pantalla sirve en los dos momentos.
+ */
+const getSeasonResults = async (req, res) => {
+  try {
+    const season = await prisma.season.findUnique({ where: { id: req.params.id } });
+    if (!season) {
+      return res.status(404).json({ error: 'No encontramos esa temporada.' });
+    }
+
+    const standings = await seasonService.getStandings(season, { limit: 20 });
+
+    res.json({
+      season: {
+        id: season.id,
+        name: season.name,
+        startDate: season.startDate,
+        endDate: season.endDate,
+        isActive: season.isActive,
+        closedAt: season.closedAt,
+      },
+      closed: !!season.closedAt,
+      podium: season.podium || null,
+      standings,
+    });
+  } catch (error) {
+    handleSeasonError(res, error, 'No pudimos cargar los resultados de la temporada.');
+  }
+};
+
 const listSeasons = async (req, res) => {
   try {
     const seasons = await prisma.season.findMany({
@@ -252,5 +313,8 @@ module.exports = {
   getCurrentSeason,
   listSeasons,
   createSeason,
+  previewSeasonClose,
+  closeSeason,
+  getSeasonResults,
   getStreakAtRisk,
 };

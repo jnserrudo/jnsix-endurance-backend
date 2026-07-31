@@ -670,7 +670,7 @@ const exportMyData = async (req, res) => {
     };
 
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="jnsix-export-${userId}.json"`);
+    res.setHeader('Content-Disposition', `attachment; filename="meryt-export-${userId}.json"`);
     res.status(200).send(JSON.stringify(exportPayload, null, 2));
   } catch (error) {
     console.error('[ERROR] [EXPORT_MY_DATA]', error);

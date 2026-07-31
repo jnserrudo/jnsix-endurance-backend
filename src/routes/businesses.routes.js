@@ -12,6 +12,8 @@ router.get('/me', authenticateToken, requireRole('BUSINESS'), businessesControll
 router.put('/me', authenticateToken, requireRole('BUSINESS'), businessesController.updateMyBusiness);
 router.post('/me/logo', authenticateToken, requireRole('BUSINESS'), uploadImage.single('image'), businessesController.uploadBusinessImage('logoUrl'));
 router.post('/me/cover', authenticateToken, requireRole('BUSINESS'), uploadImage.single('image'), businessesController.uploadBusinessImage('coverUrl'));
+router.post('/me/gallery', authenticateToken, requireRole('BUSINESS'), uploadImage.single('image'), businessesController.addGalleryImage);
+router.delete('/me/gallery/:index', authenticateToken, requireRole('BUSINESS'), businessesController.removeGalleryImage);
 
 router.get('/me/rewards', authenticateToken, requireRole('BUSINESS'), businessesController.listMyRewards);
 router.post('/me/rewards', authenticateToken, requireRole('BUSINESS'), businessesController.createMyReward);

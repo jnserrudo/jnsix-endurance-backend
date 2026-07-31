@@ -44,6 +44,8 @@ const reportsRoutes = require('./routes/reports.routes');
 const eventsRoutes = require('./routes/events.routes');
 const savedSessionsRoutes = require('./routes/savedSessions.routes');
 const referralsRoutes = require('./routes/referrals.routes');
+const meRoutes = require('./routes/me.routes');
+const discountsRoutes = require('./routes/discounts.routes');
 const authController = require('./controllers/auth.controller');
 const emailService = require('./services/email.service');
 const { auditContextMiddleware } = require('./services/audit.service');
@@ -59,6 +61,7 @@ const PORT = process.env.PORT || 5000;
 startCronJobs();
 
 const { isOriginAllowed } = require('./lib/corsOrigins');
+const { APP_NAME, APP_SCHEME, LEGACY_APP_SCHEME } = require('./constants/brand');
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -82,7 +85,7 @@ app.get('/health', (req, res) => {
   const email = emailService.getEmailStatus();
   res.json({
     status: 'ok',
-    message: 'JNSIX Endurance Analytics API',
+    message: `${APP_NAME} Analytics API`,
     services: {
       email: {
         configured: email.configured,
@@ -98,13 +101,21 @@ app.get('/health', (req, res) => {
 
 app.get('/invite/:code', (req, res) => {
   const code = String(req.params.code || '').trim().toUpperCase();
-  const deepLink = `jnsix://invite/${encodeURIComponent(code)}`;
+  const target = `invite/${encodeURIComponent(code)}`;
+  const deepLink = `${APP_SCHEME}://${target}`;
+  // Los builds anteriores al rebranding solo registran `jnsix://`, así que si el
+  // esquema nuevo no abre nada, reintentamos con el legado.
+  const legacyDeepLink =
+    APP_SCHEME === LEGACY_APP_SCHEME ? null : `${LEGACY_APP_SCHEME}://${target}`;
   const acceptJson = req.accepts(['html', 'json']) === 'json';
-  if (acceptJson) return res.json({ referralCode: code, deepLink });
+  if (acceptJson) return res.json({ referralCode: code, deepLink, legacyDeepLink });
   return res.type('html').send(`<!doctype html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>JNSIX Endurance</title></head>
-<body><p>Abriendo invitación de JNSIX Endurance…</p><p><a href="${deepLink}">Abrir la app</a></p>
-<script>window.location.href=${JSON.stringify(deepLink)};</script></body></html>`);
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${APP_NAME}</title></head>
+<body><p>Abriendo invitación de ${APP_NAME}…</p><p><a href="${deepLink}">Abrir la app</a></p>
+<script>
+window.location.href=${JSON.stringify(deepLink)};
+${legacyDeepLink ? `setTimeout(function(){window.location.href=${JSON.stringify(legacyDeepLink)};},1200);` : ''}
+</script></body></html>`);
 });
 
 app.use('/api/auth', authRoutes);
@@ -144,6 +155,8 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/events', eventsRoutes);
 app.use('/api/saved-sessions', savedSessionsRoutes);
 app.use('/api/referrals', referralsRoutes);
+app.use('/api/me', meRoutes);
+app.use('/api/discounts', discountsRoutes);
 
 
 // Ruta especial para callback de Strava (sin /api para compatibilidad con Strava)
@@ -156,7 +169,7 @@ app.use((req, res) => {
 initSocket(httpServer);
 
 httpServer.listen(PORT, () => {
-  console.log(`JNSIX Endurance Analytics API running on port ${PORT}`);
+  console.log(`${APP_NAME} Analytics API running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   const emailStatus = emailService.getEmailStatus();
   if (!emailStatus.configured) {

@@ -109,6 +109,112 @@ const createSegment = async (req, res) => {
   }
 };
 
+/**
+ * POST /segments/from-activity
+ *
+ * El atleta propone un segmento a partir de una de sus actividades con GPS.
+ * Hoy crear segmentos era solo admin, así que la tabla quedaba vacía y el
+ * matching nunca tenía qué comparar. Acá el recorrido de la actividad se
+ * convierte en inicio, fin y polyline listos para el leaderboard.
+ */
+const createFromActivity = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { activityId, name, description, startIndex, endIndex } = req.body;
+
+    if (!activityId) {
+      return res.status(400).json({ error: 'Indicá la actividad de la que querés sacar el segmento.' });
+    }
+    if (!name?.trim()) {
+      return res.status(400).json({ error: 'El segmento necesita un nombre.' });
+    }
+
+    const activity = await prisma.activity.findFirst({
+      where: { id: activityId, userId },
+    });
+    if (!activity) {
+      return res.status(404).json({ error: 'No encontramos esa actividad.' });
+    }
+    if (!activity.mapPolyline) {
+      return res.status(400).json({
+        error: 'Esa actividad no tiene recorrido GPS. Solo se pueden crear segmentos desde actividades con mapa.',
+      });
+    }
+
+    const path = decodeActivityPath(activity.mapPolyline);
+    if (path.length < 2) {
+      return res.status(400).json({ error: 'No pudimos leer el recorrido GPS de esa actividad.' });
+    }
+
+    // Por defecto usa todo el recorrido; si el móvil manda índices, toma el tramo.
+    let from = Number.isInteger(startIndex) ? startIndex : 0;
+    let to = Number.isInteger(endIndex) ? endIndex : path.length - 1;
+    from = Math.max(0, Math.min(from, path.length - 1));
+    to = Math.max(0, Math.min(to, path.length - 1));
+    if (to <= from) {
+      return res.status(400).json({ error: 'El tramo tiene que tener al menos dos puntos.' });
+    }
+
+    const slice = path.slice(from, to + 1);
+    let distanceM = 0;
+    for (let i = 1; i < slice.length; i++) {
+      distanceM += haversineMeters(slice[i - 1].lat, slice[i - 1].lng, slice[i].lat, slice[i].lng);
+    }
+
+    // Preferimos re-encodear el tramo: así el matching futuro compara el mismo
+    // formato que el resto de segmentos creados por admin.
+    let encoded = activity.mapPolyline;
+    try {
+      const polyline = require('@mapbox/polyline');
+      encoded = polyline.encode(slice.map((p) => [p.lat, p.lng]));
+    } catch {
+      // Si falla el encode, dejamos la polyline original: el matching usa
+      // start/end y no necesita la polyline exacta.
+    }
+
+    const segment = await prisma.segment.create({
+      data: {
+        name: name.trim(),
+        description:
+          description ||
+          `Propuesto por un atleta a partir de "${activity.name}".`,
+        distanceKm: Number((distanceM / 1000).toFixed(3)),
+        startCoords: [slice[0].lat, slice[0].lng],
+        endCoords: [slice[slice.length - 1].lat, slice[slice.length - 1].lng],
+        polyline: encoded,
+      },
+    });
+
+    // El creador queda como primer registro del leaderboard con el tiempo del tramo.
+    const totalMoving = activity.movingTime || 0;
+    const frac = path.length > 1 ? (to - from) / (path.length - 1) : 0;
+    const timeSeconds = Math.max(1, Math.round(totalMoving * frac));
+
+    try {
+      await prisma.segmentLeaderboard.create({
+        data: {
+          userId,
+          segmentId: segment.id,
+          activityId: activity.id,
+          timeSeconds,
+          date: activity.startDate || new Date(),
+        },
+      });
+    } catch (err) {
+      console.warn('[createFromActivity] leaderboard:', err.message);
+    }
+
+    res.status(201).json({
+      segment,
+      timeSeconds,
+      message: `Segmento "${segment.name}" creado. Ya está disponible para el resto.`,
+    });
+  } catch (error) {
+    console.error('[CREATE SEGMENT FROM ACTIVITY ERROR]', error);
+    res.status(500).json({ error: 'No pudimos crear el segmento. Intentá de nuevo.' });
+  }
+};
+
 const updateSegment = async (req, res) => {
   try {
     const existing = await prisma.segment.findUnique({ where: { id: req.params.id } });
@@ -279,6 +385,7 @@ module.exports = {
   getSegments,
   getSegmentById,
   createSegment,
+  createFromActivity,
   updateSegment,
   deleteSegment,
   logLeaderboard,

@@ -1,14 +1,31 @@
 const prisma = require('../lib/prisma');
 const storage = require('../services/storage.service');
 const { notify } = require('../services/notifications.service');
+const discountService = require('../services/discount.service');
 
 const requestManualPayment = async (req, res) => {
   try {
-    const { planName, amount } = req.body;
+    const { planName, amount, discountCode } = req.body;
     const file = req.file;
 
     if (!planName || !amount || !file) {
       return res.status(400).json({ error: 'Faltan datos obligatorios (planName, amount, receiptImage)' });
+    }
+
+    // El código se valida antes de subir el comprobante: si está vencido no
+    // tiene sentido guardar el archivo ni avisarle a los admins.
+    let discount = null;
+    let finalAmount = parseFloat(amount);
+    if (discountCode) {
+      try {
+        discount = await discountService.validateCode(discountCode, req.user.id);
+        finalAmount = discountService.applyToAmount(discount, finalAmount).finalAmount;
+      } catch (error) {
+        if (error instanceof discountService.DiscountError) {
+          return res.status(error.status).json({ error: error.message });
+        }
+        throw error;
+      }
     }
 
     // Subir imagen
@@ -19,13 +36,22 @@ const requestManualPayment = async (req, res) => {
       data: {
         userId: req.user.id,
         planName,
-        amount: parseFloat(amount),
+        amount: finalAmount,
         currency: 'USD',
         method: 'MANUAL_TRANSFER',
         status: 'PENDING',
         receiptUrl: uploadedFile.url,
       }
     });
+
+    // Recién acá se consume: si algo falló antes, el código sigue disponible.
+    if (discount) {
+      try {
+        await discountService.redeemCode(discount.code, req.user.id);
+      } catch (error) {
+        console.error('[Payments] No se pudo registrar el uso del código:', error.message);
+      }
+    }
 
     // Notificar a todos los admins
     const { notifyAdmins } = require('../services/notifications.service');

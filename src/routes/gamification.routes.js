@@ -17,6 +17,10 @@ router.get('/badges', gamificationController.getBadges);
 router.get('/seasons/current', gamificationController.getCurrentSeason);
 router.get('/seasons', requireRole('ADMIN'), gamificationController.listSeasons);
 router.post('/seasons', requireRole('ADMIN'), gamificationController.createSeason);
+router.get('/seasons/:id/close-preview', requireRole('ADMIN'), gamificationController.previewSeasonClose);
+router.post('/seasons/:id/close', requireRole('ADMIN'), gamificationController.closeSeason);
+// Resultado del podio: lo puede ver cualquier atleta una vez cerrada.
+router.get('/seasons/:id/results', gamificationController.getSeasonResults);
 
 // Alias bajo gamification (también montados en /api/duels)
 router.post('/duels', duelsController.createDuel);

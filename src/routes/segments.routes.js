@@ -7,6 +7,7 @@ router.use(authenticateToken);
 
 router.get('/', segmentsController.getSegments);
 router.post('/match', segmentsController.matchSegments);
+router.post('/from-activity', segmentsController.createFromActivity);
 router.post('/', requireRole('ADMIN'), segmentsController.createSegment);
 router.get('/:id', segmentsController.getSegmentById);
 router.put('/:id', requireRole('ADMIN'), segmentsController.updateSegment);

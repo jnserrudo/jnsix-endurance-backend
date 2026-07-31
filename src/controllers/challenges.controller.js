@@ -1,33 +1,58 @@
 const prisma = require('../lib/prisma');
 const { notify } = require('../services/notifications.service');
+const { resolveSponsor } = require('../services/challenges.service');
 
 const createChallenge = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, description, type, metric, targetValue, startDate, endDate, groupId, communityId } = req.body;
+    const {
+      name,
+      description,
+      type,
+      metric,
+      targetValue,
+      startDate,
+      endDate,
+      groupId,
+      communityId,
+      sponsorBusinessId,
+      sponsorRewardId,
+      sponsorLabel,
+    } = req.body;
 
     if (!name || !metric || !targetValue || !startDate || !endDate) {
-      return res.status(400).json({ error: 'Campos requeridos: name, metric, targetValue, startDate, endDate' });
+      return res.status(400).json({
+        error: 'Campos requeridos: name, metric, targetValue, startDate, endDate',
+      });
     }
 
     const validMetrics = ['DISTANCE', 'ELEVATION', 'TIME', 'FREQUENCY'];
     if (!validMetrics.includes(metric)) {
-      return res.status(400).json({ error: `Métrica inválida. Debe ser una de: ${validMetrics.join(', ')}` });
+      return res.status(400).json({
+        error: `Métrica inválida. Debe ser una de: ${validMetrics.join(', ')}`,
+      });
     }
 
     // Validar scope
     if (type === 'GROUP' && groupId) {
       const member = await prisma.groupMember.findUnique({
-        where: { groupId_userId: { groupId, userId } }
+        where: { groupId_userId: { groupId, userId } },
       });
       if (!member) return res.status(403).json({ error: 'No eres miembro de este grupo' });
     }
 
     if (type === 'COMMUNITY' && communityId) {
       const member = await prisma.communityMember.findUnique({
-        where: { communityId_userId: { communityId, userId } }
+        where: { communityId_userId: { communityId, userId } },
       });
       if (!member) return res.status(403).json({ error: 'No eres miembro de esta comunidad' });
+    }
+
+    let sponsor;
+    try {
+      sponsor = await resolveSponsor({ sponsorBusinessId, sponsorRewardId, sponsorLabel });
+    } catch (error) {
+      return res.status(error.status || 400).json({ error: error.message });
     }
 
     const challenge = await prisma.challenge.create({
@@ -41,14 +66,19 @@ const createChallenge = async (req, res) => {
         endDate: new Date(endDate),
         createdById: userId,
         groupId: type === 'GROUP' ? groupId : null,
-        communityId: type === 'COMMUNITY' ? communityId : null
-      }
+        communityId: type === 'COMMUNITY' ? communityId : null,
+        ...sponsor,
+      },
+      include: {
+        sponsorBusiness: { select: { id: true, name: true, logoUrl: true } },
+        sponsorReward: { select: { id: true, title: true, pointsCost: true, imageUrl: true } },
+      },
     });
 
     res.status(201).json(challenge);
   } catch (error) {
     console.error('[ERROR]', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ error: 'No pudimos crear el reto. Intentá de nuevo.' });
   }
 };
 
@@ -69,16 +99,34 @@ const listChallenges = async (req, res) => {
       where,
       include: {
         createdBy: { select: { id: true, email: true } },
+        sponsorBusiness: { select: { id: true, name: true, logoUrl: true } },
+        sponsorReward: { select: { id: true, title: true, pointsCost: true, imageUrl: true } },
         _count: { select: { participants: true } },
-        participants: { where: { userId }, select: { id: true, currentProgress: true, completed: true } }
+        participants: {
+          where: { userId },
+          select: {
+            currentProgress: true,
+            completed: true,
+            sponsorRewardGranted: true,
+          },
+        },
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
 
-    res.json(challenges.map(c => {
-      const myParticipant = c.participants[0];
-      return { ...c, isParticipant: !!myParticipant, currentProgress: myParticipant?.currentProgress || 0, completed: !!myParticipant?.completed };
-    }));
+    res.json(
+      challenges.map((c) => {
+        const myParticipant = c.participants[0];
+        return {
+          ...c,
+          isParticipant: !!myParticipant,
+          currentProgress: myParticipant?.currentProgress || 0,
+          completed: !!myParticipant?.completed,
+          sponsorRewardGranted: !!myParticipant?.sponsorRewardGranted,
+          isSponsored: !!c.sponsorBusinessId,
+        };
+      })
+    );
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -96,20 +144,22 @@ const getChallengeById = async (req, res) => {
         createdBy: { select: { id: true, email: true } },
         group: { select: { id: true, name: true } },
         community: { select: { id: true, name: true } },
+        sponsorBusiness: { select: { id: true, name: true, logoUrl: true } },
+        sponsorReward: { select: { id: true, title: true, pointsCost: true, imageUrl: true } },
         participants: {
           include: { user: { select: { id: true, email: true } } },
-          orderBy: { currentProgress: 'desc' }
-        }
-      }
+          orderBy: { currentProgress: 'desc' },
+        },
+      },
     });
 
     if (!challenge || challenge.deletedAt) {
-      return res.status(404).json({ error: 'Challenge not found' });
+      return res.status(404).json({ error: 'No encontramos ese reto.' });
     }
 
-    const isParticipant = challenge.participants.some(p => p.userId === userId);
+    const isParticipant = challenge.participants.some((p) => p.userId === userId);
 
-    res.json({ ...challenge, isParticipant });
+    res.json({ ...challenge, isParticipant, isSponsored: !!challenge.sponsorBusinessId });
   } catch (error) {
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -120,15 +170,44 @@ const updateChallenge = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const { name, description, targetValue, startDate, endDate, isActive } = req.body;
+    const {
+      name,
+      description,
+      targetValue,
+      startDate,
+      endDate,
+      isActive,
+      sponsorBusinessId,
+      sponsorRewardId,
+      sponsorLabel,
+    } = req.body;
 
     const challenge = await prisma.challenge.findUnique({ where: { id } });
     if (!challenge || challenge.deletedAt) {
-      return res.status(404).json({ error: 'Challenge not found' });
+      return res.status(404).json({ error: 'No encontramos ese reto.' });
     }
 
     if (challenge.createdById !== userId && req.user.role !== 'ADMIN') {
       return res.status(403).json({ error: 'Solo el creador o un admin puede editar este reto' });
+    }
+
+    let sponsorPatch = {};
+    if (
+      sponsorBusinessId !== undefined ||
+      sponsorRewardId !== undefined ||
+      sponsorLabel !== undefined
+    ) {
+      try {
+        sponsorPatch = await resolveSponsor({
+          sponsorBusinessId:
+            sponsorBusinessId === undefined ? challenge.sponsorBusinessId : sponsorBusinessId,
+          sponsorRewardId:
+            sponsorRewardId === undefined ? challenge.sponsorRewardId : sponsorRewardId,
+          sponsorLabel: sponsorLabel === undefined ? challenge.sponsorLabel : sponsorLabel,
+        });
+      } catch (error) {
+        return res.status(error.status || 400).json({ error: error.message });
+      }
     }
 
     const updated = await prisma.challenge.update({
@@ -139,8 +218,13 @@ const updateChallenge = async (req, res) => {
         ...(targetValue !== undefined && { targetValue: parseFloat(targetValue) }),
         ...(startDate !== undefined && { startDate: new Date(startDate) }),
         ...(endDate !== undefined && { endDate: new Date(endDate) }),
-        ...(isActive !== undefined && { isActive })
-      }
+        ...(isActive !== undefined && { isActive }),
+        ...sponsorPatch,
+      },
+      include: {
+        sponsorBusiness: { select: { id: true, name: true, logoUrl: true } },
+        sponsorReward: { select: { id: true, title: true, pointsCost: true, imageUrl: true } },
+      },
     });
 
     res.json(updated);

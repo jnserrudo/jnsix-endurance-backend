@@ -6,8 +6,8 @@ const { ensureBadgesExist } = require('../data/defaultBadges');
 const { notify } = require('./notifications.service');
 
 const { calculateStreakFromDates } = require('../utils/streak');
+const scoringConfig = require('./scoringConfig.service');
 
-const COMBO_POINTS = 15;
 const COMBO_REASON_PREFIX = 'Bonus combo del día';
 
 function dayBounds(d = new Date()) {
@@ -202,16 +202,19 @@ class GamificationService {
         return { awarded: false, progress: { activityCount, postCount, reactionCount } };
       }
 
+      const comboPoints = Math.round(await scoringConfig.getValue('social.combo_points'));
+
       const result = await scoringService.awardPoints(userId, {
-        points: COMBO_POINTS,
+        points: comboPoints,
         reason: `${COMBO_REASON_PREFIX}: entrená + publicá + reaccioná`,
+        source: 'COMBO',
       });
 
       await this.awardBadgeByCode(userId, 'social_combo');
 
       return {
         awarded: true,
-        points: COMBO_POINTS,
+        points: comboPoints,
         dayKey,
         newTotalPoints: result.userScore?.totalPoints ?? null,
       };

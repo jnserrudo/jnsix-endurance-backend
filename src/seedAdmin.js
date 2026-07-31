@@ -1,56 +1,8 @@
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
+const { PERMISSIONS, ROLE_DEFINITIONS } = require('./data/rbac');
 
 const prisma = new PrismaClient();
-
-const PERMISSIONS = [
-  { key: 'users.view', module: 'users', description: 'Ver listado de usuarios' },
-  { key: 'users.edit', module: 'users', description: 'Editar datos de usuarios' },
-  { key: 'users.ban', module: 'users', description: 'Banear/reactivar usuarios' },
-  { key: 'roles.manage', module: 'roles', description: 'Crear/editar roles y permisos' },
-  { key: 'groups.create', module: 'groups', description: 'Crear grupos' },
-  { key: 'groups.edit', module: 'groups', description: 'Editar cualquier grupo' },
-  { key: 'groups.disable', module: 'groups', description: 'Deshabilitar cualquier grupo' },
-  { key: 'communities.create', module: 'communities', description: 'Crear comunidades' },
-  { key: 'communities.edit', module: 'communities', description: 'Editar cualquier comunidad' },
-  { key: 'communities.disable', module: 'communities', description: 'Deshabilitar cualquier comunidad' },
-  { key: 'challenges.create_global', module: 'challenges', description: 'Crear retos globales' },
-  { key: 'challenges.edit', module: 'challenges', description: 'Editar cualquier reto' },
-  { key: 'challenges.disable', module: 'challenges', description: 'Deshabilitar cualquier reto' },
-  { key: 'rankings.manage', module: 'rankings', description: 'Configurar rangos y categorias' },
-  { key: 'plans.manage', module: 'plans', description: 'Gestionar planes, features y precios' },
-  { key: 'feature_flags.manage', module: 'feature_flags', description: 'Encender/apagar modulos completos' },
-  { key: 'audit.view', module: 'audit', description: 'Ver el log de auditoria completo' },
-  { key: 'notifications.manage', module: 'notifications', description: 'Enviar notificaciones/broadcast y ver plantillas' },
-  { key: 'businesses.moderate', module: 'marketplace', description: 'Aprobar/rechazar negocios del marketplace' },
-  { key: 'rewards.moderate', module: 'marketplace', description: 'Moderar recompensas del marketplace' },
-  { key: 'business.profile.manage', module: 'marketplace', description: 'Gestionar perfil de negocio' },
-  { key: 'rewards.manage', module: 'marketplace', description: 'Gestionar recompensas del negocio' },
-  { key: 'redemptions.validate', module: 'marketplace', description: 'Validar cupones canjeados' }
-];
-
-const ROLE_DEFINITIONS = [
-  { name: 'ADMIN', description: 'Administrador del sistema (acceso total, via role legado)', isSystem: true, permissions: [] },
-  { name: 'ATHLETE', description: 'Usuario atleta estandar', isSystem: true, permissions: [] },
-  {
-    name: 'MODERATOR',
-    description: 'Moderador de contenido y comunidad',
-    isSystem: false,
-    permissions: ['users.view', 'groups.edit', 'groups.disable', 'communities.edit', 'communities.disable', 'audit.view']
-  },
-  {
-    name: 'COACH',
-    description: 'Entrenador con vista sobre sus atletas',
-    isSystem: false,
-    permissions: ['users.view', 'challenges.create_global', 'challenges.edit']
-  },
-  {
-    name: 'BUSINESS',
-    description: 'Negocio adherido al marketplace de recompensas',
-    isSystem: true,
-    permissions: ['business.profile.manage', 'rewards.manage', 'redemptions.validate']
-  }
-];
 
 const FEATURE_FLAGS = [
   { key: 'chat_enabled', name: 'Chat en tiempo real', description: 'Habilita el modulo de chat (Socket.io)' },

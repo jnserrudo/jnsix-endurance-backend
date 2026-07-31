@@ -1,49 +1,75 @@
 const prisma = require('../lib/prisma');
 const { notify } = require('./notifications.service');
 const { notifyWishlistEligible } = require('./marketplace.service');
+const scoringConfig = require('./scoringConfig.service');
+const { APP_NAME } = require('../constants/brand');
 
-const TYPE_MULTIPLIERS = {
-  RUN: 1,
-  TRAIL_RUN: 1.3,
-  RIDE: 0.8,
-  VIRTUAL_RUN: 0.9,
-  VIRTUAL_RIDE: 0.7,
-  SWIM: 1.5,
-  HIKE: 1.1,
-  WALK: 0.6,
-  OTHER: 0.5
+/** Racha en días -> regla con el bonus correspondiente. */
+const STREAK_BONUS_RULES = {
+  7: 'streak.bonus_7_days',
+  30: 'streak.bonus_30_days'
 };
 
-const STREAK_BONUSES = {
-  7: 50,
-  30: 200
+const ADMIN_ADJUSTMENT = 'ADMIN_ADJUSTMENT';
+
+const SOURCE_LABELS = {
+  ACTIVITY: 'Actividad',
+  WORKOUT: 'Gimnasio',
+  ACHIEVEMENT: 'Logro',
+  MISSION: 'Misión',
+  REDEMPTION: 'Canje',
+  STREAK: 'Racha',
+  CHECKIN: 'Check-in',
+  REFERRAL: 'Invitación',
+  COMBO: 'Combo',
+  SEASON_CLOSE: 'Cierre de temporada',
+  [ADMIN_ADJUSTMENT]: `Ajuste del equipo ${APP_NAME}`,
+  OTHER: 'Otro'
 };
 
 const deriveEventMeta = (event) => {
-  if (event.redemptionId) return { type: 'SPENT', source: 'REDEMPTION' };
-  if (event.activityId) return { type: 'EARNED', source: 'ACTIVITY' };
-  if (event.workoutId) return { type: 'EARNED', source: 'WORKOUT' };
-  if (event.achievementId) return { type: 'EARNED', source: 'ACHIEVEMENT' };
-  if (event.missionId) return { type: 'EARNED', source: 'MISSION' };
-  if (event.points < 0) return { type: 'SPENT', source: 'OTHER' };
-  if (event.reason?.toLowerCase().includes('streak')) return { type: 'EARNED', source: 'STREAK' };
-  return { type: event.points >= 0 ? 'EARNED' : 'SPENT', source: 'OTHER' };
+  // `source` existe desde la economía configurable; los eventos anteriores se
+  // infieren por sus relaciones para no perder el detalle del historial.
+  const explicit = event.source && SOURCE_LABELS[event.source] ? event.source : null;
+  const derived = (() => {
+    if (explicit) return { type: event.points >= 0 ? 'EARNED' : 'SPENT', source: explicit };
+    if (event.redemptionId) return { type: 'SPENT', source: 'REDEMPTION' };
+    if (event.activityId) return { type: 'EARNED', source: 'ACTIVITY' };
+    if (event.workoutId) return { type: 'EARNED', source: 'WORKOUT' };
+    if (event.achievementId) return { type: 'EARNED', source: 'ACHIEVEMENT' };
+    if (event.missionId) return { type: 'EARNED', source: 'MISSION' };
+    if (event.points < 0) return { type: 'SPENT', source: 'OTHER' };
+    if (event.reason?.toLowerCase().includes('streak')) return { type: 'EARNED', source: 'STREAK' };
+    return { type: event.points >= 0 ? 'EARNED' : 'SPENT', source: 'OTHER' };
+  })();
+
+  return { ...derived, sourceLabel: SOURCE_LABELS[derived.source] || SOURCE_LABELS.OTHER };
 };
 
-const calculateActivityPoints = (activity) => {
+/**
+ * Cálculo puro: recibe las reglas ya cargadas.
+ * Lo usa el simulador del admin para probar valores sin guardarlos.
+ */
+const calculateActivityPointsWith = (activity, values) => {
   const distanceKm = Number(activity.distanceKm) || 0;
   const elevationM = Number(activity.elevationM) || 0;
   const movingTime = Number(activity.movingTime) || 0;
-  const distancePoints = distanceKm * 10;
-  const elevationPoints = elevationM * 0.5;
-  const timePoints = (movingTime / 3600) * 20;
-  const multiplier = TYPE_MULTIPLIERS[activity.type] || TYPE_MULTIPLIERS.OTHER;
+  const distancePoints = distanceKm * (values['activity.points_per_km'] ?? 0);
+  const elevationPoints = elevationM * (values['activity.points_per_elevation_m'] ?? 0);
+  const timePoints = (movingTime / 3600) * (values['activity.points_per_hour'] ?? 0);
+  const multiplier = scoringConfig.getMultiplier(values, activity.type);
   const total = (distancePoints + elevationPoints + timePoints) * multiplier;
   if (!Number.isFinite(total)) return 0;
-  // Mínimo 1 pt si hay actividad con distancia o tiempo medible
+  // Piso configurable para que una actividad corta igual sume algo.
   const rounded = Math.round(total);
-  if (rounded <= 0 && (distanceKm > 0.05 || movingTime >= 60)) return 1;
+  const minPoints = Math.round(values['activity.min_points'] ?? 0);
+  if (rounded <= 0 && (distanceKm > 0.05 || movingTime >= 60)) return minPoints;
   return Math.max(0, rounded);
+};
+
+const calculateActivityPoints = async (activity) => {
+  const values = await scoringConfig.getValues();
+  return calculateActivityPointsWith(activity, values);
 };
 
 const recalculateUserScore = async (userId) => {
@@ -91,7 +117,10 @@ const recalculateUserScore = async (userId) => {
   return { userScore, rank, rankChanged, rankDirection, previousRank: previousScore?.currentRank || null };
 };
 
-const awardPoints = async (userId, { points, reason, activityId, missionId, achievementId, workoutId, redemptionId }) => {
+const awardPoints = async (
+  userId,
+  { points, reason, activityId, missionId, achievementId, workoutId, redemptionId, source, createdBy, silent }
+) => {
   if (!points || points === 0) return { points: 0, scoreResult: await recalculateUserScore(userId) };
 
   const event = await prisma.scoreEvent.create({
@@ -103,13 +132,17 @@ const awardPoints = async (userId, { points, reason, activityId, missionId, achi
       missionId: missionId || null,
       achievementId: achievementId || null,
       workoutId: workoutId || null,
-      redemptionId: redemptionId || null
+      redemptionId: redemptionId || null,
+      source: source || null,
+      createdBy: createdBy || null
     }
   });
 
   const scoreResult = await recalculateUserScore(userId);
 
-  if (points > 0) {
+  // `silent` existe para que un ajuste de prueba del admin no le dispare un push
+  // "+50 pts" al usuario.
+  if (points > 0 && !silent) {
     await notify(userId, 'POINTS_EARNED', {
       title: `+${points} pts`,
       body: reason,
@@ -265,11 +298,12 @@ const awardActivityPoints = async (activityId) => {
   const existing = await prisma.scoreEvent.findFirst({ where: { activityId } });
   if (existing) return { points: existing.points, alreadyScored: true };
 
-  const points = calculateActivityPoints(activity);
+  const points = await calculateActivityPoints(activity);
   const result = await awardPoints(activity.userId, {
     points,
     reason: require('../constants/copy.es').copy.activityCompleted(activity.name),
-    activityId: activity.id
+    activityId: activity.id,
+    source: 'ACTIVITY'
   });
 
   return { points, ...result };
@@ -296,10 +330,21 @@ const batchScoreActivities = async (userId) => {
   return { totalEarned, activitiesScored: unscoredActivities.length, ...scoreResult };
 };
 
-const calculateWorkoutPoints = (sets) => {
-  const setPoints = sets.length * 5;
-  const volumePoints = sets.reduce((sum, s) => sum + ((s.reps || 0) * (s.weightKg || 1) * 0.05), 0);
+/** Cálculo puro de gimnasio, con las reglas ya cargadas. */
+const calculateWorkoutPointsWith = (sets, values) => {
+  const perSet = values['workout.points_per_set'] ?? 0;
+  const perVolumeKg = values['workout.points_per_volume_kg'] ?? 0;
+  const setPoints = sets.length * perSet;
+  const volumePoints = sets.reduce(
+    (sum, s) => sum + ((s.reps || 0) * (s.weightKg || 1) * perVolumeKg),
+    0
+  );
   return Math.max(0, Math.round(setPoints + volumePoints));
+};
+
+const calculateWorkoutPoints = async (sets) => {
+  const values = await scoringConfig.getValues();
+  return calculateWorkoutPointsWith(sets, values);
 };
 
 const awardWorkoutPoints = async (sessionId) => {
@@ -313,18 +358,21 @@ const awardWorkoutPoints = async (sessionId) => {
   const existing = await prisma.scoreEvent.findFirst({ where: { workoutId: sessionId } });
   if (existing) return { points: existing.points, alreadyScored: true };
 
-  const points = calculateWorkoutPoints(session.sets);
+  const points = await calculateWorkoutPoints(session.sets);
   const result = await awardPoints(session.userId, {
     points,
     reason: require('../constants/copy.es').copy.workoutCompleted(session.name),
-    workoutId: sessionId
+    workoutId: sessionId,
+    source: 'WORKOUT'
   });
 
   return { points, ...result };
 };
 
 const awardStreakBonusIfEligible = async (userId, currentStreak) => {
-  const bonusPoints = STREAK_BONUSES[currentStreak];
+  const ruleKey = STREAK_BONUS_RULES[currentStreak];
+  if (!ruleKey) return null;
+  const bonusPoints = Math.round(await scoringConfig.getValue(ruleKey));
   if (!bonusPoints) return null;
 
   const { copy } = require('../constants/copy.es');
@@ -340,7 +388,8 @@ const awardStreakBonusIfEligible = async (userId, currentStreak) => {
 
   return awardPoints(userId, {
     points: bonusPoints,
-    reason
+    reason,
+    source: 'STREAK'
   });
 };
 
@@ -360,10 +409,12 @@ const buildScoringResponse = (awardResult) => {
 };
 
 module.exports = {
-  TYPE_MULTIPLIERS,
-  STREAK_BONUSES,
+  STREAK_BONUS_RULES,
+  ADMIN_ADJUSTMENT,
+  SOURCE_LABELS,
   deriveEventMeta,
   calculateActivityPoints,
+  calculateActivityPointsWith,
   awardPoints,
   deductPoints,
   awardActivityPoints,
@@ -371,6 +422,7 @@ module.exports = {
   batchScoreActivities,
   recalculateUserScore,
   calculateWorkoutPoints,
+  calculateWorkoutPointsWith,
   awardWorkoutPoints,
   awardStreakBonusIfEligible,
   getPointsSummary,

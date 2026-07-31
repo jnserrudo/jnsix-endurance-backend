@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
+const adminScoringController = require('../controllers/adminScoring.controller');
+const discountsController = require('../controllers/discounts.controller');
 const reportsController = require('../controllers/reports.controller');
 const { authenticateToken } = require('../middleware/auth.middleware');
 const { requirePermission } = require('../middleware/rbac.middleware');
@@ -8,7 +10,7 @@ const { requirePermission } = require('../middleware/rbac.middleware');
 router.use(authenticateToken);
 
 // Estadísticas
-router.get('/stats', adminController.getStats);
+router.get('/stats', requirePermission('stats.view'), adminController.getStats);
 
 // Usuarios
 router.get('/users', requirePermission('users.view'), adminController.listUsers);
@@ -29,6 +31,22 @@ router.get('/permissions', requirePermission('roles.manage'), adminController.li
 // Feature Flags
 router.get('/feature-flags', requirePermission('feature_flags.manage'), adminController.listFeatureFlags);
 router.put('/feature-flags/:key', requirePermission('feature_flags.manage'), adminController.toggleFeatureFlag);
+
+// Economía de puntos (reglas + ajustes manuales)
+router.get('/scoring/rules', requirePermission('scoring.manage'), adminScoringController.listScoringRules);
+router.put('/scoring/rules/:key', requirePermission('scoring.manage'), adminScoringController.updateScoringRule);
+router.post('/scoring/rules/reset', requirePermission('scoring.manage'), adminScoringController.resetScoringRules);
+router.post('/scoring/simulate', requirePermission('scoring.manage'), adminScoringController.simulateScoring);
+router.post('/scoring/adjustments/:id/revert', requirePermission('scoring.manage'), adminScoringController.revertAdjustment);
+router.get('/users/:id/points', requirePermission('scoring.manage'), adminScoringController.getUserPointsDetail);
+router.post('/users/:id/points', requirePermission('scoring.manage'), adminScoringController.adjustUserPoints);
+router.post('/users/:id/points/recalculate', requirePermission('scoring.manage'), adminScoringController.recalculateUserPoints);
+
+// Códigos de descuento
+router.get('/discounts', requirePermission('plans.manage'), discountsController.list);
+router.post('/discounts', requirePermission('plans.manage'), discountsController.create);
+router.put('/discounts/:id', requirePermission('plans.manage'), discountsController.update);
+router.delete('/discounts/:id', requirePermission('plans.manage'), discountsController.remove);
 
 // Planes
 router.get('/plans', requirePermission('plans.manage'), adminController.listPlans);
@@ -80,7 +98,7 @@ router.delete('/stories/:id', requirePermission('content.moderate'), adminContro
 
 router.get('/rewards', requirePermission('rewards.moderate'), adminController.listAdminRewards);
 router.patch('/rewards/:id/status', requirePermission('rewards.moderate'), adminController.updateAdminRewardStatus);
-router.post('/notifications/test', adminController.sendTestNotification);
+router.post('/notifications/test', requirePermission('notifications.manage'), adminController.sendTestNotification);
 router.post('/digest/run', requirePermission('users.manage'), adminController.runWeeklyDigest);
 
 // Misiones y Logros

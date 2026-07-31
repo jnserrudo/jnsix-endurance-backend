@@ -354,6 +354,27 @@ model FeatureFlag {
   @@map("feature_flags")
 }
 
+/// Economía de puntos editable sin deploy. Los defaults viven en
+/// services/scoringConfig.service.js; una fila acá sobreescribe el default.
+model ScoringRule {
+  key         String   @id
+  label       String
+  description String?
+  /// ACTIVITY | MULTIPLIER | WORKOUT | STREAK | CHECKIN | REFERRAL | SOCIAL | REWARD | CLUB | REWARD_GUIDE
+  group       String   @map("rule_group")
+  value       Float
+  minValue    Float?   @map("min_value")
+  maxValue    Float?   @map("max_value")
+  /// pts | pts_por_km | pts_por_m | pts_por_hora | x | pct | dias | semanas
+  unit        String?
+  isActive    Boolean  @default(true) @map("is_active")
+  updatedBy   String?  @map("updated_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([group])
+  @@map("scoring_rules")
+}
+
 // ============================================================
 // Auditoría
 // ============================================================
@@ -556,6 +577,11 @@ model ScoreEvent {
   redemptionId  String?     @unique @map("redemption_id")
   points        Int
   reason        String
+  /// Origen explícito del movimiento. Null en los eventos previos a este campo:
+  /// para esos, deriveEventMeta lo infiere por las relaciones.
+  source        String?
+  /// Admin que generó el movimiento, solo en ajustes manuales.
+  createdBy     String?     @map("created_by")
   createdAt     DateTime    @default(now()) @map("created_at")
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   activity      Activity?   @relation(fields: [activityId], references: [id], onDelete: SetNull)
@@ -694,13 +720,22 @@ model Challenge {
   isActive     Boolean                @default(true) @map("is_active")
   deletedAt    DateTime?              @map("deleted_at")
   createdAt    DateTime               @default(now()) @map("created_at")
+
+  // Patrocinio: un negocio pone el premio; al completar se genera el canje.
+  sponsorBusinessId String?  @map("sponsor_business_id")
+  sponsorRewardId   String?  @map("sponsor_reward_id")
+  sponsorLabel      String?  @map("sponsor_label") @db.VarChar(120)
+
   createdBy    User                   @relation("ChallengeCreator", fields: [createdById], references: [id], onDelete: Cascade)
   group        Group?                 @relation(fields: [groupId], references: [id], onDelete: SetNull)
   community    Community?             @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  sponsorBusiness Business?           @relation("SponsoredChallenges", fields: [sponsorBusinessId], references: [id], onDelete: SetNull)
+  sponsorReward   Reward?             @relation("SponsoredChallengeReward", fields: [sponsorRewardId], references: [id], onDelete: SetNull)
   participants ChallengeParticipant[]
 
   @@index([groupId])
   @@index([communityId])
+  @@index([sponsorBusinessId])
   @@map("challenges")
 }
 
@@ -710,6 +745,8 @@ model ChallengeParticipant {
   currentProgress Float     @default(0) @map("current_progress")
   completed       Boolean   @default(false)
   completedAt     DateTime? @map("completed_at")
+  // Si el reto tiene premio patrocinado, marca que ya se generó el canje.
+  sponsorRewardGranted Boolean @default(false) @map("sponsor_reward_granted")
   challenge       Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
   user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -938,6 +975,7 @@ model Business {
   redemptions     Redemption[]
   settlements     Settlement[]
   checkIns        BusinessCheckIn[]
+  sponsoredChallenges Challenge[] @relation("SponsoredChallenges")
 
   @@index([status, isActive])
   @@index([category])
@@ -982,6 +1020,7 @@ model Reward {
   business            Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
   redemptions         Redemption[]
   wishlistItems       RewardWishlist[]
+  sponsoredChallenges Challenge[]      @relation("SponsoredChallengeReward")
 
   @@index([businessId, status])
   @@index([status, expiresAt])
@@ -1627,6 +1666,11 @@ model Season {
   endDate   DateTime @map("end_date")
   isActive  Boolean  @default(false) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
+
+  // Cierre: marca que el podio ya se premió, para que no se pague dos veces.
+  closedAt  DateTime? @map("closed_at")
+  closedBy  String?   @map("closed_by")
+  podium    Json?
 
   @@map("seasons")
 }

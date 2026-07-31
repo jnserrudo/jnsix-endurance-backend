@@ -386,7 +386,9 @@ const uploadActivity = async (req, res) => {
     } else if (fileExt === '.tcx') {
       parsedData = await fileParserService.parseTcxFile(file.buffer);
     } else {
-      return res.status(400).json({ error: 'Unsupported file type' });
+      return res.status(400).json({
+        error: 'Solo podemos importar archivos .fit, .gpx o .tcx.'
+      });
     }
 
     const uploadResult = await storageService.uploadFile(file, userId);
@@ -429,6 +431,13 @@ const uploadActivity = async (req, res) => {
     const extras = await collectPostCreateExtras(userId, activity);
     res.status(201).json({ ...activity, scoring, ...extras });
   } catch (error) {
+    // Un archivo dañado es culpa del archivo, no del servidor: 400 y en español.
+    if (error?.name === 'FileParseError') {
+      console.warn('[uploadActivity] archivo inválido:', error.message);
+      return res.status(400).json({
+        error: 'No pudimos leer ese archivo. Verificá que sea un .fit, .gpx o .tcx válido y que no esté dañado.'
+      });
+    }
     console.error('[ERROR]', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }

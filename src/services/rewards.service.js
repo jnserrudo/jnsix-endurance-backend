@@ -2,15 +2,22 @@ const prisma = require('../lib/prisma');
 const scoringService = require('./scoring.service');
 const { generateUniqueCode } = require('./redemption-code.service');
 const { notify } = require('./notifications.service');
+const scoringConfig = require('./scoringConfig.service');
 
-/** Descuento extra por racha (streak >= 3): 10% sobre el costo efectivo. */
-const STREAK_BONUS_THRESHOLD = 3;
-const STREAK_BONUS_PCT = 10;
-
-/** Descuento extra por proximidad a competencia (J3): 5%. */
-const COMPETITION_PROXIMITY_DAYS = 14;
-const COMPETITION_PROGRESS_PCT = 80;
-const COMPETITION_BONUS_PCT = 5;
+/**
+ * Descuentos al canjear (racha y proximidad a competencia). Los valores se
+ * configuran desde el admin; acá solo se leen.
+ */
+const loadRewardRules = async () => {
+  const values = await scoringConfig.getValues();
+  return {
+    streakThreshold: values['reward.streak_bonus_threshold'] ?? 0,
+    streakPct: values['reward.streak_bonus_pct'] ?? 0,
+    competitionProximityDays: values['reward.competition_proximity_days'] ?? 0,
+    competitionProgressPct: values['reward.competition_progress_pct'] ?? 0,
+    competitionBonusPct: values['reward.competition_bonus_pct'] ?? 0,
+  };
+};
 
 const getEffectivePointsCost = (reward) => {
   const base = Math.max(0, Number(reward.pointsCost) || 0);
@@ -38,15 +45,16 @@ const isRewardAvailable = (reward, business) => {
 };
 
 /**
- * Bonus J3: competencia con targetDate en los próximos 14 días y trainingProgress >80%,
- * O competencia recién completada (targetDate en los últimos 14 días).
+ * Bonus J3: competencia con targetDate dentro de la ventana configurada y
+ * progreso del plan por encima del mínimo, o competencia recién completada.
  */
-const getCompetitionProximityBonus = async (tx, userId) => {
+const getCompetitionProximityBonus = async (tx, userId, preloadedRules) => {
+  const rules = preloadedRules || (await loadRewardRules());
   const now = new Date();
   const windowEnd = new Date(now);
-  windowEnd.setDate(windowEnd.getDate() + COMPETITION_PROXIMITY_DAYS);
+  windowEnd.setDate(windowEnd.getDate() + rules.competitionProximityDays);
   const windowStart = new Date(now);
-  windowStart.setDate(windowStart.getDate() - COMPETITION_PROXIMITY_DAYS);
+  windowStart.setDate(windowStart.getDate() - rules.competitionProximityDays);
 
   const goals = await tx.competitionGoal.findMany({
     where: {
@@ -78,12 +86,12 @@ const getCompetitionProximityBonus = async (tx, userId) => {
       target <= now || (goal.simulations?.length || 0) > 0;
 
     const nearRaceWithProgress =
-      target > now && percent > COMPETITION_PROGRESS_PCT;
+      target > now && percent > rules.competitionProgressPct;
 
     if (nearRaceWithProgress || competitionCompleted) {
       return {
         applied: true,
-        pct: COMPETITION_BONUS_PCT,
+        pct: rules.competitionBonusPct,
         reason: competitionCompleted
           ? 'competition_completed'
           : 'competition_proximity_progress',
@@ -99,6 +107,9 @@ const getCompetitionProximityBonus = async (tx, userId) => {
 };
 
 const redeemReward = async (userId, rewardId) => {
+  // Fuera de la transacción: leer configuración no debería mantener la tx abierta.
+  const rules = await loadRewardRules();
+
   const result = await prisma.$transaction(async (tx) => {
     const reward = await tx.reward.findUnique({
       where: { id: rewardId },
@@ -123,17 +134,17 @@ const redeemReward = async (userId, rewardId) => {
     const streak = await tx.streak.findUnique({ where: { userId } });
     const currentStreak = streak?.currentStreak || 0;
     let streakBonusApplied = false;
-    if (currentStreak >= STREAK_BONUS_THRESHOLD && effectiveCost > 0) {
-      effectiveCost = Math.max(0, Math.round(effectiveCost * (1 - STREAK_BONUS_PCT / 100)));
+    if (currentStreak >= rules.streakThreshold && effectiveCost > 0) {
+      effectiveCost = Math.max(0, Math.round(effectiveCost * (1 - rules.streakPct / 100)));
       streakBonusApplied = true;
     }
 
-    const competitionBonus = await getCompetitionProximityBonus(tx, userId);
+    const competitionBonus = await getCompetitionProximityBonus(tx, userId, rules);
     let competitionBonusApplied = false;
     if (competitionBonus.applied && effectiveCost > 0) {
       effectiveCost = Math.max(
         0,
-        Math.round(effectiveCost * (1 - COMPETITION_BONUS_PCT / 100))
+        Math.round(effectiveCost * (1 - rules.competitionBonusPct / 100))
       );
       competitionBonusApplied = true;
     }
@@ -218,7 +229,8 @@ const redeemReward = async (userId, rewardId) => {
           userId,
           points: -effectiveCost,
           reason: `Canje de premio${reasonSuffix}: ${reward.title}`,
-          redemptionId: redemption.id
+          redemptionId: redemption.id,
+          source: 'REDEMPTION'
         }
       });
     }
@@ -230,9 +242,9 @@ const redeemReward = async (userId, rewardId) => {
       reward,
       streakBonusApplied,
       currentStreak,
-      streakBonusPct: streakBonusApplied ? STREAK_BONUS_PCT : 0,
+      streakBonusPct: streakBonusApplied ? rules.streakPct : 0,
       competitionBonusApplied,
-      competitionBonusPct: competitionBonusApplied ? COMPETITION_BONUS_PCT : 0,
+      competitionBonusPct: competitionBonusApplied ? rules.competitionBonusPct : 0,
       competitionBonus,
     };
   });
@@ -243,10 +255,10 @@ const redeemReward = async (userId, rewardId) => {
     result.effectiveCost === 0 ? 'gratis' : `${result.effectiveCost} pts`;
   let body = `Canjeaste "${result.reward.title}" (${costLabel}). Mostrá el código en el local.`;
   if (result.streakBonusApplied) {
-    body += ` Bonus racha ×${result.currentStreak}: -${STREAK_BONUS_PCT}%.`;
+    body += ` Bonus racha ×${result.currentStreak}: -${result.streakBonusPct}%.`;
   }
   if (result.competitionBonusApplied) {
-    body += ` Bonus competencia: -${COMPETITION_BONUS_PCT}%.`;
+    body += ` Bonus competencia: -${result.competitionBonusPct}%.`;
   }
   if (scoreResult.rankChanged && scoreResult.rank?.name) {
     body += ` Tu rank ahora es ${scoreResult.rank.name}.`;
@@ -281,7 +293,7 @@ const redeemReward = async (userId, rewardId) => {
     competitionBonusPct: result.competitionBonusPct,
     competitionBonus: result.competitionBonusApplied
       ? {
-          pct: COMPETITION_BONUS_PCT,
+          pct: result.competitionBonusPct,
           reason: result.competitionBonus.reason,
           competitionGoalId: result.competitionBonus.competitionGoalId,
           competitionName: result.competitionBonus.competitionName,
@@ -298,6 +310,7 @@ const redeemReward = async (userId, rewardId) => {
  * Preview de costo con descuentos de featured + racha + competencia (sin canjear).
  */
 const previewUserPricing = async (userId, reward) => {
+  const rules = await loadRewardRules();
   const baseCost = Math.max(0, Number(reward.pointsCost) || 0);
   const featuredCost = getEffectivePointsCost(reward);
   const featuredDiscountPct =
@@ -314,15 +327,15 @@ const previewUserPricing = async (userId, reward) => {
   if (userId) {
     const streak = await prisma.streak.findUnique({ where: { userId } });
     currentStreak = streak?.currentStreak || 0;
-    if (currentStreak >= STREAK_BONUS_THRESHOLD && effectiveCost > 0) {
-      effectiveCost = Math.max(0, Math.round(effectiveCost * (1 - STREAK_BONUS_PCT / 100)));
+    if (currentStreak >= rules.streakThreshold && effectiveCost > 0) {
+      effectiveCost = Math.max(0, Math.round(effectiveCost * (1 - rules.streakPct / 100)));
       streakBonusApplied = true;
     }
-    competitionBonus = await getCompetitionProximityBonus(prisma, userId);
+    competitionBonus = await getCompetitionProximityBonus(prisma, userId, rules);
     if (competitionBonus.applied && effectiveCost > 0) {
       effectiveCost = Math.max(
         0,
-        Math.round(effectiveCost * (1 - COMPETITION_BONUS_PCT / 100))
+        Math.round(effectiveCost * (1 - rules.competitionBonusPct / 100))
       );
       competitionBonusApplied = true;
     }
@@ -334,13 +347,13 @@ const previewUserPricing = async (userId, reward) => {
     featuredDiscountPct,
     effectiveCost,
     streakBonusApplied,
-    streakBonusPct: streakBonusApplied ? STREAK_BONUS_PCT : 0,
+    streakBonusPct: streakBonusApplied ? rules.streakPct : 0,
     currentStreak,
     competitionBonusApplied,
-    competitionBonusPct: competitionBonusApplied ? COMPETITION_BONUS_PCT : 0,
+    competitionBonusPct: competitionBonusApplied ? rules.competitionBonusPct : 0,
     competitionBonus: competitionBonusApplied
       ? {
-          pct: COMPETITION_BONUS_PCT,
+          pct: rules.competitionBonusPct,
           reason: competitionBonus.reason,
           competitionName: competitionBonus.competitionName,
           trainingProgressPct: competitionBonus.trainingProgressPct,
@@ -355,9 +368,5 @@ module.exports = {
   redeemReward,
   getCompetitionProximityBonus,
   previewUserPricing,
-  STREAK_BONUS_THRESHOLD,
-  STREAK_BONUS_PCT,
-  COMPETITION_PROXIMITY_DAYS,
-  COMPETITION_PROGRESS_PCT,
-  COMPETITION_BONUS_PCT,
+  loadRewardRules,
 };

@@ -93,9 +93,11 @@ prisma/migrations/
 **/backup*.sql
 **/dump*.sql
 
-# One-shot seed scripts at repo root (src/seed*.js and prisma/seed.js stay tracked)
+# One-shot seed scripts at repo root (src/seed*.js y prisma/seed.js siguen trackeados)
 /seed*.js
 !/seed_badges.js
+# src/seedAdmin.js lo requiere en runtime: sin esto, el VPS siembra sin misiones.
+!/seed_missions.js
 /massive-seed.js
 
 # Editor directories and files

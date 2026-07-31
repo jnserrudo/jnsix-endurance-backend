@@ -1,4 +1,5 @@
 const scoringService = require('../services/scoring.service');
+const scoringReferenceService = require('../services/scoringReference.service');
 
 const getMySummary = async (req, res) => {
   try {
@@ -34,8 +35,23 @@ const getMySuggestions = async (req, res) => {
   }
 };
 
+/** Guía de precios en puntos para los negocios. Derivada de las reglas vigentes. */
+const getReference = async (req, res) => {
+  try {
+    const reference = await scoringReferenceService.getReference({
+      userId: req.user.id,
+      businessId: req.query.businessId || null,
+    });
+    res.json(reference);
+  } catch (error) {
+    console.error('[ERROR] getReference:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+};
+
 module.exports = {
   getMySummary,
   getMyHistory,
-  getMySuggestions
+  getMySuggestions,
+  getReference
 };

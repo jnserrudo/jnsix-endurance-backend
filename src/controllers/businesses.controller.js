@@ -2,9 +2,163 @@ const prisma = require('../lib/prisma');
 const rewardsService = require('../services/rewards.service');
 const scoringService = require('../services/scoring.service');
 const { notify } = require('../services/notifications.service');
+const scoringConfig = require('../services/scoringConfig.service');
+const { APP_SCHEME, LEGACY_APP_SCHEME } = require('../constants/brand');
 
-const CHECK_IN_POINTS = 5;
 const CHECK_IN_RADIUS_M = 500;
+
+/** Tope de fotos de galería, igual al que ya aplicaba `updateMyBusiness`. */
+const GALLERY_MAX = 5;
+
+/** Ventana en la que un cupón activo se considera "por vencer" para avisarle al dueño. */
+const EXPIRING_COUPON_HOURS = 48;
+
+/** Semanas sin canjes desde las que un beneficio activo se marca como frío. */
+const STALE_REWARD_WEEKS = 3;
+
+/** Título fijo: es lo que permite saber si el aviso del día ya salió. */
+const EXPIRING_COUPON_TITLE = 'Tenés cupones por vencer';
+
+const normalizeGallery = (value) =>
+  Array.isArray(value) ? value.map((url) => String(url).trim()).filter(Boolean) : [];
+
+/**
+ * Link público del local. `meryt://` es el esquema vigente y `jnsix://` sigue
+ * registrado en el build nativo, así que los links viejos no se rompen.
+ */
+const buildPublicLinks = (businessId) => ({
+  deepLink: `${APP_SCHEME}://business/${businessId}`,
+  legacyDeepLink: `${LEGACY_APP_SCHEME}://business/${businessId}`
+});
+
+/**
+ * Checklist de vitrina: qué le falta al perfil para que un atleta lo entienda
+ * de un vistazo. Cada ítem apunta a la pantalla donde se resuelve, así el móvil
+ * no tiene que saber a dónde mandar a la persona.
+ */
+const buildStorefrontChecklist = (business, { rewardsCount = 0 } = {}) => {
+  const gallery = normalizeGallery(business.galleryUrls);
+  const hasCoords = business.latitude != null && business.longitude != null;
+
+  const items = [
+    {
+      key: 'logo',
+      label: 'Subí tu logo',
+      hint: 'Es lo primero que se ve en la vitrina y en el mapa.',
+      done: Boolean(business.logoUrl),
+      screen: 'BusinessProfileEdit'
+    },
+    {
+      key: 'cover',
+      label: 'Subí una portada',
+      hint: 'Una foto ancha del local arriba de tu perfil.',
+      done: Boolean(business.coverUrl),
+      screen: 'BusinessProfileEdit'
+    },
+    {
+      key: 'coords',
+      label: 'Marcá tu ubicación',
+      hint: 'Sin coordenadas no aparecés en el mapa ni podés recibir check-ins.',
+      done: hasCoords,
+      screen: 'BusinessProfileEdit',
+      critical: true
+    },
+    {
+      key: 'hours',
+      label: 'Cargá tus horarios',
+      hint: 'Evitás que alguien llegue con el local cerrado.',
+      done: Boolean(business.hours?.trim()),
+      screen: 'BusinessProfileEdit'
+    },
+    {
+      key: 'category',
+      label: 'Elegí una categoría',
+      hint: 'Ayuda a que te encuentren filtrando (café, fisio, bici…).',
+      done: Boolean(business.category?.trim()),
+      screen: 'BusinessProfileEdit'
+    },
+    {
+      key: 'gallery',
+      label: 'Agregá fotos a la galería',
+      hint: `Hasta ${GALLERY_MAX} fotos reales del local o de lo que ofrecés.`,
+      done: gallery.length > 0,
+      screen: 'BusinessProfileEdit'
+    },
+    {
+      key: 'firstReward',
+      label: 'Creá tu primera recompensa',
+      hint: 'Sin beneficios no hay motivo para canjear en tu local.',
+      done: rewardsCount > 0,
+      screen: 'BusinessRewardForm'
+    }
+  ];
+
+  const completed = items.filter((item) => item.done).length;
+
+  return {
+    items,
+    completed,
+    total: items.length,
+    completionPct: Math.round((completed / items.length) * 100),
+    hasCoords,
+    galleryCount: gallery.length,
+    galleryMax: GALLERY_MAX
+  };
+};
+
+/**
+ * Avisa al dueño si tiene cupones activos a punto de vencer. Se dispara en los
+ * momentos en que el dueño ya está usando su panel (carga del dashboard y
+ * validación de un cupón), así no hace falta un cron aparte.
+ *
+ * El corte por día lo hace una consulta propia y no el dedupe de `notify`,
+ * porque los avisos de check-in usan el mismo tipo y podrían desplazar a este
+ * de la ventana que mira el dedupe en un local con mucho movimiento.
+ */
+const notifyExpiringCoupons = async (business) => {
+  const now = new Date();
+  const until = new Date(now.getTime() + EXPIRING_COUPON_HOURS * 60 * 60 * 1000);
+
+  const expiring = await prisma.redemption.count({
+    where: {
+      businessId: business.id,
+      status: 'ACTIVE',
+      expiresAt: { gt: now, lte: until }
+    }
+  });
+  if (expiring === 0) return null;
+
+  const startOfDay = new Date(now);
+  startOfDay.setHours(0, 0, 0, 0);
+  const alreadySentToday = await prisma.notification.findFirst({
+    where: {
+      userId: business.userId,
+      type: 'SYSTEM',
+      title: EXPIRING_COUPON_TITLE,
+      createdAt: { gte: startOfDay }
+    },
+    select: { id: true }
+  });
+  if (alreadySentToday) return null;
+
+  const plural = expiring === 1 ? 'cupón activo' : 'cupones activos';
+  return notify(business.userId, 'SYSTEM', {
+    title: EXPIRING_COUPON_TITLE,
+    body:
+      `Tenés ${expiring} ${plural} que vencen en menos de ${EXPIRING_COUPON_HOURS} h. ` +
+      'Si el atleta aparece, validalos desde tu panel.',
+    payload: {
+      type: 'BUSINESS_COUPONS_EXPIRING',
+      businessId: business.id,
+      count: expiring,
+      screen: 'BusinessRedemptions'
+    },
+    dedupeKey: `business-coupons-expiring:${business.id}:${startOfDay.toISOString().slice(0, 10)}`
+  });
+};
+
+/** Puntos por check-in, configurables desde el admin. */
+const getCheckInPoints = async () => Math.round(await scoringConfig.getValue('checkin.points'));
 
 function haversineKm(lat1, lng1, lat2, lng2) {
   const toRad = (d) => (d * Math.PI) / 180;
@@ -167,6 +321,7 @@ const getBusinessById = async (req, res) => {
 
     res.json({
       ...business,
+      ...buildPublicLinks(business.id),
       checkInsTotal,
       checkInsToday,
       userCheckedInToday: Boolean(userCheckInToday),
@@ -192,7 +347,18 @@ const getMyBusiness = async (req, res) => {
     });
 
     if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
-    res.json(business);
+
+    res.json({
+      ...business,
+      ...buildPublicLinks(business.id),
+      storefrontChecklist: buildStorefrontChecklist(business, {
+        rewardsCount: business._count?.rewards ?? 0
+      })
+    });
+
+    notifyExpiringCoupons(business).catch((err) =>
+      console.error('[getMyBusiness] notifyExpiringCoupons:', err.message)
+    );
   } catch (error) {
     console.error('[ERROR] getMyBusiness:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -296,6 +462,56 @@ const uploadBusinessImage = (field) => async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('[ERROR] uploadBusinessImage:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+/** Suma una foto a la galería. Usa el mismo multer que logo y portada. */
+const addGalleryImage = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Se requiere una imagen' });
+
+    const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
+
+    const current = normalizeGallery(business.galleryUrls);
+    if (current.length >= GALLERY_MAX) {
+      return res.status(400).json({
+        error: `Ya tenés ${GALLERY_MAX} fotos en la galería. Borrá una para subir otra.`
+      });
+    }
+
+    const updated = await prisma.business.update({
+      where: { id: business.id },
+      data: { galleryUrls: [...current, `/uploads/${req.file.filename}`] }
+    });
+
+    res.status(201).json(updated);
+  } catch (error) {
+    console.error('[ERROR] addGalleryImage:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+const removeGalleryImage = async (req, res) => {
+  try {
+    const business = await prisma.business.findUnique({ where: { userId: req.user.id } });
+    if (!business) return res.status(404).json({ error: 'Perfil de negocio no encontrado' });
+
+    const index = Number.parseInt(req.params.index, 10);
+    const current = normalizeGallery(business.galleryUrls);
+    if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+      return res.status(404).json({ error: 'Esa foto ya no está en tu galería' });
+    }
+
+    const updated = await prisma.business.update({
+      where: { id: business.id },
+      data: { galleryUrls: current.filter((_, i) => i !== index) }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('[ERROR] removeGalleryImage:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
@@ -483,7 +699,14 @@ const getMyAnalytics = async (req, res) => {
     periodStart.setHours(0, 0, 0, 0);
     periodStart.setDate(periodStart.getDate() - (periodDays - 1));
 
-    const [redemptions, checkIns, priorRedemptionAthletes, priorCheckInAthletes] = await Promise.all([
+    const [
+      redemptions,
+      checkIns,
+      priorRedemptionAthletes,
+      priorCheckInAthletes,
+      activeRewards,
+      lastRedemptionPerReward
+    ] = await Promise.all([
       prisma.redemption.findMany({
         where: { businessId: business.id, createdAt: { gte: periodStart } },
         select: { userId: true, rewardId: true, pointsSpent: true, createdAt: true, reward: { select: { title: true } } }
@@ -501,6 +724,17 @@ const getMyAnalytics = async (req, res) => {
         where: { businessId: business.id, createdAt: { lt: periodStart } },
         select: { userId: true },
         distinct: ['userId']
+      }),
+      prisma.reward.findMany({
+        where: { businessId: business.id, status: 'ACTIVE' },
+        select: { id: true, title: true, pointsCost: true, createdAt: true },
+        orderBy: { createdAt: 'asc' }
+      }),
+      prisma.redemption.groupBy({
+        by: ['rewardId'],
+        where: { businessId: business.id },
+        _max: { createdAt: true },
+        _count: { _all: true }
       })
     ]);
 
@@ -518,11 +752,12 @@ const getMyAnalytics = async (req, res) => {
       const day = dailyByDate.get(dateKey(redemption.createdAt));
       if (day) day.redemptions += 1;
     });
+    const checkInPoints = await getCheckInPoints();
     checkIns.forEach((checkInRow) => {
       const day = dailyByDate.get(dateKey(checkInRow.createdAt));
       if (day) {
         day.checkIns += 1;
-        day.pointsGranted += CHECK_IN_POINTS;
+        day.pointsGranted += checkInPoints;
       }
     });
 
@@ -545,9 +780,45 @@ const getMyAnalytics = async (req, res) => {
       rewardCounts.set(redemption.rewardId, current);
     });
 
+    // Cuánto hace que cada beneficio activo no se canjea. Si nunca se canjeó,
+    // se mide desde que se creó: igual sirve para decidir si conviene ajustarlo.
+    const now = Date.now();
+    const weeksSince = (date) =>
+      Math.max(0, Math.floor((now - new Date(date).getTime()) / (7 * 24 * 60 * 60 * 1000)));
+    const lastByReward = new Map(
+      lastRedemptionPerReward.map((row) => [
+        row.rewardId,
+        { lastRedeemedAt: row._max.createdAt, redemptionsTotal: row._count._all }
+      ])
+    );
+    const redemptionsInPeriodByReward = new Map();
+    redemptions.forEach((redemption) => {
+      redemptionsInPeriodByReward.set(
+        redemption.rewardId,
+        (redemptionsInPeriodByReward.get(redemption.rewardId) || 0) + 1
+      );
+    });
+
+    const rewardPerformance = activeRewards.map((reward) => {
+      const history = lastByReward.get(reward.id);
+      const lastRedeemedAt = history?.lastRedeemedAt ?? null;
+      const weeksWithoutRedemptions = weeksSince(lastRedeemedAt ?? reward.createdAt);
+      return {
+        id: reward.id,
+        title: reward.title,
+        pointsCost: reward.pointsCost,
+        createdAt: reward.createdAt,
+        lastRedeemedAt,
+        redemptionsTotal: history?.redemptionsTotal ?? 0,
+        redemptionsInPeriod: redemptionsInPeriodByReward.get(reward.id) || 0,
+        weeksWithoutRedemptions,
+        isStale: weeksWithoutRedemptions >= STALE_REWARD_WEEKS
+      };
+    });
+
     const redemptionsThisPeriod = redemptions.length;
     const checkInsThisPeriod = checkIns.length;
-    const pointsGranted = checkInsThisPeriod * CHECK_IN_POINTS;
+    const pointsGranted = checkInsThisPeriod * checkInPoints;
     const todayKey = dateKey(new Date());
     const checkInsToday = dailyByDate.get(todayKey)?.checkIns || 0;
 
@@ -567,6 +838,9 @@ const getMyAnalytics = async (req, res) => {
         newAthletes: Array.from(athleteIds).filter((id) => !returningAthleteIds.has(id)).length,
         returningAthletes: Array.from(athleteIds).filter((id) => returningAthleteIds.has(id)).length
       },
+      activeRewardsCount: activeRewards.length,
+      staleRewardWeeks: STALE_REWARD_WEEKS,
+      rewardPerformance,
       // Campos legacy para clientes que todavía muestran la semana.
       redemptionsThisWeek: periodDays === 7 ? redemptionsThisPeriod : undefined,
       checkInsThisWeek: periodDays === 7 ? checkInsThisPeriod : undefined
@@ -645,9 +919,11 @@ const checkIn = async (req, res) => {
       data: { userId, businessId }
     });
 
+    const checkInPoints = await getCheckInPoints();
     const award = await scoringService.awardPoints(userId, {
-      points: CHECK_IN_POINTS,
-      reason: `Check-in en ${business.name}`
+      points: checkInPoints,
+      reason: `Check-in en ${business.name}`,
+      source: 'CHECKIN'
     });
 
     const totalPoints =
@@ -668,6 +944,19 @@ const checkIn = async (req, res) => {
       };
     });
 
+    // El dueño se entera de la visita en el momento, para poder ofrecerle algo.
+    notify(business.userId, 'SYSTEM', {
+      title: 'Nuevo check-in en tu local',
+      body: `Un atleta acaba de hacer check-in en ${business.name}. Es un buen momento para ofrecerle un beneficio.`,
+      payload: {
+        type: 'BUSINESS_CHECKIN',
+        businessId: business.id,
+        checkInId: checkInRow.id,
+        screen: 'BusinessDashboard'
+      },
+      dedupeKey: `business-checkin:${business.id}:${checkInRow.id}`
+    }).catch((err) => console.error('[checkIn] notify owner:', err.message));
+
     // Gamification hook (missions/badges) — best-effort
     try {
       const gamification = require('../services/gamification.service');
@@ -680,7 +969,7 @@ const checkIn = async (req, res) => {
 
     res.status(201).json({
       checkIn: checkInRow,
-      pointsAwarded: CHECK_IN_POINTS,
+      pointsAwarded: checkInPoints,
       newTotalPoints: totalPoints,
       distanceM: distanceM != null ? Math.round(distanceM) : null,
       requiresProximity,
@@ -784,6 +1073,10 @@ const validateRedemption = async (req, res) => {
     }).catch((err) => console.error('[validateRedemption] notify:', err.message));
 
     res.json({ message: 'Cup?n validado', redemption: updated });
+
+    notifyExpiringCoupons(business).catch((err) =>
+      console.error('[validateRedemption] notifyExpiringCoupons:', err.message)
+    );
   } catch (error) {
     console.error('[ERROR] validateRedemption:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
@@ -870,6 +1163,8 @@ module.exports = {
   getMyBusiness,
   updateMyBusiness,
   uploadBusinessImage,
+  addGalleryImage,
+  removeGalleryImage,
   listMyRewards,
   createMyReward,
   updateMyReward,

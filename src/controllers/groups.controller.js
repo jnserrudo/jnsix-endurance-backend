@@ -1,6 +1,7 @@
 const prisma = require('../lib/prisma');
 const { notify } = require('../services/notifications.service');
 const storage = require('../services/storage.service');
+const scoringConfig = require('../services/scoringConfig.service');
 
 const listGroups = async (req, res) => {
   try {
@@ -527,11 +528,20 @@ const createSubgroup = async (req, res) => {
   }
 };
 
-const ECONOMY_THRESHOLDS = [
-  { points: 500, message: '¡El club desbloqueó un snack de partner! Pedile el código al admin.' },
-  { points: 1500, message: '¡Umbral medio! Hay un descuento partner disponible para el club.' },
-  { points: 4000, message: '¡Meta alta del mes! Recompensa partner premium desbloqueada.' },
+const ECONOMY_THRESHOLD_RULES = [
+  { key: 'club.threshold_1', message: '¡El club desbloqueó un snack de partner! Pedile el código al admin.' },
+  { key: 'club.threshold_2', message: '¡Umbral medio! Hay un descuento partner disponible para el club.' },
+  { key: 'club.threshold_3', message: '¡Meta alta del mes! Recompensa partner premium desbloqueada.' },
 ];
+
+/** Umbrales mensuales del club, con los puntos configurables desde el admin. */
+const getEconomyThresholds = async () => {
+  const values = await scoringConfig.getValues();
+  return ECONOMY_THRESHOLD_RULES.map((rule) => ({
+    points: Math.round(values[rule.key] ?? 0),
+    message: rule.message,
+  })).sort((a, b) => a.points - b.points);
+};
 
 /**
  * Q2: al cruzar umbral, notifica al OWNER y crea un Reward pointsCost 0
@@ -618,13 +628,14 @@ const getGroupEconomy = async (req, res) => {
       select: { userId: true },
     });
     const memberIds = members.map((m) => m.userId);
+    const thresholds = await getEconomyThresholds();
     if (memberIds.length === 0) {
       return res.json({
         monthPoints: 0,
         memberCount: 0,
         unlocked: [],
-        nextThreshold: ECONOMY_THRESHOLDS[0],
-        thresholds: ECONOMY_THRESHOLDS,
+        nextThreshold: thresholds[0],
+        thresholds,
       });
     }
 
@@ -641,8 +652,8 @@ const getGroupEconomy = async (req, res) => {
     });
 
     const monthPoints = agg._sum.points || 0;
-    const unlocked = ECONOMY_THRESHOLDS.filter((t) => monthPoints >= t.points);
-    const nextThreshold = ECONOMY_THRESHOLDS.find((t) => monthPoints < t.points) || null;
+    const unlocked = thresholds.filter((t) => monthPoints >= t.points);
+    const nextThreshold = thresholds.find((t) => monthPoints < t.points) || null;
 
     const unlockRewards = await ensureEconomyUnlocks(group, monthPoints, unlocked).catch((err) => {
       console.error('[ERROR] ensureEconomyUnlocks:', err);
@@ -654,7 +665,7 @@ const getGroupEconomy = async (req, res) => {
       memberCount: memberIds.length,
       unlocked,
       nextThreshold,
-      thresholds: ECONOMY_THRESHOLDS,
+      thresholds,
       unlockRewards,
       unlockMessage: unlocked.length
         ? unlocked[unlocked.length - 1].message
